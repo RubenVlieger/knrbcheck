@@ -1,6 +1,22 @@
 const express = require('express');
 const path = require('path');
 const { checkCrew, classifyField } = require('./rules');
+const fs = require('fs');
+
+const STATS_FILE = path.join(__dirname, 'stats.json');
+let totalChecks = 0;
+
+try {
+  if (fs.existsSync(STATS_FILE)) {
+    const d = JSON.parse(fs.readFileSync(STATS_FILE, 'utf8'));
+    totalChecks = d.totalChecks || 0;
+  }
+} catch(e) {}
+
+function incrementCounter() {
+  totalChecks++;
+  try { fs.writeFileSync(STATS_FILE, JSON.stringify({ totalChecks })); } catch(e) {}
+}
 
 const app = express();
 app.use(express.json());
@@ -100,6 +116,13 @@ app.get('/api/tournaments', async (req, res) => {
 });
 
 /**
+ * GET /api/stats - get total check counter
+ */
+app.get('/api/stats', (req, res) => {
+  res.json({ totalChecks });
+});
+
+/**
  * GET /api/matches - list all matches for a tournament
  */
 app.get('/api/matches', async (req, res) => {
@@ -145,6 +168,7 @@ app.post('/api/check-field', async (req, res) => {
     }
 
     console.log(`Checking field: tournament=${tournamentId}, match=${matchId}`);
+    incrementCounter();
 
     // 1. Fetch detailed match data with team members
     const matchUrl = `${FOYS_BASE}/matches?tournamentId=${tournamentId}&matchRegistrations=true&matchIds[]=${matchId}`;

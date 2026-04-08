@@ -17,12 +17,30 @@ const statTotal = document.getElementById('stat-total');
 const statLegal = document.getElementById('stat-legal');
 const statIllegal = document.getElementById('stat-illegal');
 const resultsGrid = document.getElementById('results-grid');
+const globalStatsText = document.getElementById('global-stats-text');
+const globalCounter = document.getElementById('global-counter');
 
 let currentTournamentId = null;
 let allMatches = [];
 
 // Default tournament to pre-select: Voorjaarsregatta 2026
 const DEFAULT_TOURNAMENT_NAME = 'Voorjaarsregatta';
+
+/**
+ * Fetch and update global stats counter
+ */
+async function updateStats() {
+  try {
+    const res = await fetch('/api/stats');
+    if (res.ok) {
+      const data = await res.json();
+      globalCounter.textContent = data.totalChecks;
+      globalStatsText.style.opacity = '1';
+    }
+  } catch (e) {
+    console.error('Could not fetch stats', e);
+  }
+}
 
 /**
  * Format a date string for display.
@@ -182,6 +200,7 @@ async function checkField() {
 
     const data = await res.json();
     renderResults(data);
+    updateStats();
   } catch (err) {
     alert(`Fout bij controle: ${err.message}`);
   } finally {
@@ -356,5 +375,6 @@ function escapeHtml(str) {
 // Event listeners
 btnCheck.addEventListener('click', checkField);
 
-// Load tournaments on page load
+// Load initial data
 loadTournaments();
+updateStats();
