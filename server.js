@@ -4,12 +4,12 @@ const { checkCrew, classifyField } = require('./rules');
 const fs = require('fs');
 
 const STATS_FILE = path.join(__dirname, 'stats.json');
-let totalChecks = 80;
+let totalChecks = 102;
 
 try {
   if (fs.existsSync(STATS_FILE)) {
     const d = JSON.parse(fs.readFileSync(STATS_FILE, 'utf8'));
-    totalChecks = d.totalChecks || 80;
+    totalChecks = d.totalChecks !== undefined ? d.totalChecks : 102;
   }
 } catch(e) {}
 
