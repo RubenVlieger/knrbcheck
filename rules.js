@@ -64,7 +64,10 @@ function classifyField(matchCategoryName, matchBoatCategoryCode) {
  * IMPORTANT: We also count the CURRENT regatta they are registering for as +1 
  * tournament for the current season.
  */
-function countDevSeasons(raceHistory) {
+function countDevSeasons(raceHistory, personName) {
+  if (personName && personName.includes("Ruben Vlieger")) {
+    require('fs').writeFileSync('ruben_history_debug.json', JSON.stringify(raceHistory, null, 2));
+  }
   const seasonTournaments = new Map();
 
   for (const tournament of raceHistory) {
@@ -85,7 +88,7 @@ function countDevSeasons(raceHistory) {
       if (!seasonTournaments.has(season)) {
         seasonTournaments.set(season, new Set());
       }
-      seasonTournaments.get(season).add(tournament.id || tournament.name);
+      seasonTournaments.get(season).add(tournament.tournamentName);
     }
   }
 
@@ -199,7 +202,7 @@ function checkDevelopmentCrew(rowers, boatType) {
     const total = sculling + sweeping;
     totalCrewPoints += total;
 
-    const devSeasons = countDevSeasons(rower.raceHistory || []);
+    const devSeasons = countDevSeasons(rower.raceHistory || [], rower.fullName);
     const rowerViolations = [];
 
     // Season check: max 2 seasons (current + 1 previous) in Dev
