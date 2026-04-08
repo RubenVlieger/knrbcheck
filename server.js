@@ -284,6 +284,6 @@ app.post('/api/clear-cache', (req, res) => {
   res.json({ success: true });
 });
 
-app.listen(PORT, () => {
-  console.log(`KNRB Regatta Checker running at http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`KNRB Regatta Checker running on all interfaces (0.0.0.0) at port ${PORT}`);
 });

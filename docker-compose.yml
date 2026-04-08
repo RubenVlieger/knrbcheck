@@ -8,3 +8,9 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
+    networks:
+      - caddy
+
+networks:
+  caddy:
+    external: true
