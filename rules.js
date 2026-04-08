@@ -97,6 +97,12 @@ function countDevSeasons(raceHistory) {
   seasonTournaments.get(currentSeason).add(`Upcoming`);
 
   const validSeasons = [];
+  
+  // Unconditionally count the current season because they are registering for it now
+  validSeasons.push(currentSeason);
+  seasonTournaments.delete(currentSeason);
+
+  // For all OTHER past seasons, they only count if they started 2 or more times
   for (const [season, tournamentsSet] of seasonTournaments.entries()) {
     if (tournamentsSet.size >= 2) {
       validSeasons.push(season);
