@@ -9,8 +9,8 @@ services:
       - NODE_ENV=production
       - PORT=3000
     networks:
-      - caddy
+      - proxy_default
 
 networks:
-  caddy:
+  proxy_default:
     external: true
