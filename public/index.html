@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="nl">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KNRB Regatta Checker</title>
+  <meta name="description" content="Check crew eligibility for fields at KNRB rowing regattas">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="header-content">
+        <h1 class="logo">⛵ KNRB Regatta Checker</h1>
+        <p class="subtitle">Controleer bemanning-eligibiliteit voor KNRB velden</p>
+      </div>
+    </header>
+
+    <main class="main">
+      <!-- Step 1: Select regatta -->
+      <section class="card input-card" id="step-input">
+        <div class="card-header">
+          <span class="step-badge">1</span>
+          <h2>Regatta selecteren</h2>
+        </div>
+        <div class="card-body">
+          <div class="input-group">
+            <label for="tournament-select">Kies een regatta uit dit seizoen</label>
+            <select id="tournament-select">
+              <option value="">Regatta's laden...</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <!-- Step 2: Select field -->
+      <section class="card select-card hidden" id="step-select">
+        <div class="card-header">
+          <span class="step-badge">2</span>
+          <h2>Veld selecteren</h2>
+        </div>
+        <div class="card-body">
+          <div class="input-group">
+            <label for="field-select">Kies een veld uit de matrix</label>
+            <select id="field-select">
+              <option value="">-- Selecteer veld --</option>
+            </select>
+          </div>
+
+          <div class="options-row">
+            <label class="checkbox-label">
+              <input type="checkbox" id="combined-nieuweling" checked>
+              <span class="checkmark"></span>
+              Nieuweling: gecombineerde punten (scull + sweep)
+            </label>
+          </div>
+
+          <button id="btn-check" class="btn btn-accent" disabled>Controleer bemanningen</button>
+        </div>
+      </section>
+
+      <!-- Loading state -->
+      <section class="card loading-card hidden" id="step-loading">
+        <div class="card-body loading-body">
+          <div class="spinner"></div>
+          <p class="loading-text" id="loading-text">Bemanningsgegevens ophalen...</p>
+          <p class="loading-sub" id="loading-sub">Dit kan even duren bij veel inschrijvingen</p>
+        </div>
+      </section>
+
+      <!-- Step 3: Results -->
+      <section class="hidden" id="step-results">
+        <div class="results-header">
+          <h2 id="results-title">Resultaten</h2>
+          <div class="results-stats">
+            <span class="stat stat-total" id="stat-total"></span>
+            <span class="stat stat-legal" id="stat-legal"></span>
+            <span class="stat stat-illegal" id="stat-illegal"></span>
+          </div>
+        </div>
+        <div class="results-grid" id="results-grid"></div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>Gebaseerd op het Reglement voor Roeiwedstrijden, versie 22 november 2025</p>
+    </footer>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+
+</html>
