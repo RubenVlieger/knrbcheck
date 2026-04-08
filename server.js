@@ -37,8 +37,37 @@ app.get('/api/tournaments', async (req, res) => {
     const url = `${FOYS_BASE}/tournaments?federationId=${FEDERATION_ID}&seasonId=${SEASON_ID}&searchString=&pageSize=1000&registrationsFilter=false&resultsFilter=false`;
     const data = await foysGet(url);
 
-    const tournaments = (data.items || [])
-      .filter(t => t.hasRegistrations) // Only show tournaments that have registrations
+    const baseTournaments = (data.items || []).filter(t => t.hasRegistrations);
+
+    const validTournaments = [];
+    
+    // Batch fetch matches for each tournament to see if it has Classifying fields
+    for (let i = 0; i < baseTournaments.length; i += 5) {
+      const chunk = baseTournaments.slice(i, i + 5);
+      await Promise.all(chunk.map(async (t) => {
+        try {
+          // Temporarily use the same fetch method to check for matches
+          const matchUrl = `${FOYS_BASE}/matches?tournamentId=${t.id}`;
+          const matchData = await foysGet(matchUrl);
+          
+          // Check if any match is classifying/standard KNRB field
+          const hasEligibleField = matchData.some(m => {
+            const cat = (m.matchCategoryName || '').toLowerCase();
+            return cat.includes('gevorderde') || cat.includes('eerstejaars') || 
+                   cat.includes('development') || cat.includes('nieuweling') || 
+                   cat.includes('beginner') || cat.includes('first-year') || cat.includes('advanced');
+          });
+
+          if (hasEligibleField) {
+            validTournaments.push(t);
+          }
+        } catch (e) {
+          console.error(`Failed to fetch matches for ${t.id}:`, e.message);
+        }
+      }));
+    }
+
+    const tournaments = validTournaments
       .map(t => ({
         id: t.id,
         name: (t.name || '').trim(),
