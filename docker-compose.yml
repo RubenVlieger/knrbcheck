@@ -9,8 +9,8 @@ services:
       - NODE_ENV=production
       - PORT=3000
     networks:
-      - proxy_default
+      - web-proxy
 
 networks:
-  proxy_default:
+  web-proxy:
     external: true
