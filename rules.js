@@ -60,33 +60,52 @@ function classifyField(matchCategoryName, matchBoatCategoryCode) {
 
 /**
  * Count distinct seasons in which a rower participated in Development fields.
- * IMPORTANT: We also count the CURRENT season, because the rower is about to
- * race in a Dev field at the upcoming regatta. The race history only shows past
- * regattas, so it undercounts by 1 for the current season.
+ * A season ONLY counts if they started in a Dev field at 2 OR MORE distinct regattas.
+ * IMPORTANT: We also count the CURRENT regatta they are registering for as +1 
+ * tournament for the current season.
  */
 function countDevSeasons(raceHistory) {
-  const devSeasons = new Set();
+  const seasonTournaments = new Map();
 
   for (const tournament of raceHistory) {
     const tournamentDate = tournament.firstTournamentDate;
     if (!tournamentDate) continue;
 
+    let racedDevInTournament = false;
     for (const race of (tournament.raceResults || [])) {
       const matchCode = race.matchCode || '';
       if (matchCode.toLowerCase().includes('dev')) {
-        const season = getSeasonForDate(tournamentDate);
-        devSeasons.add(season);
+        racedDevInTournament = true;
+        break;
       }
+    }
+
+    if (racedDevInTournament) {
+      const season = getSeasonForDate(tournamentDate);
+      if (!seasonTournaments.has(season)) {
+        seasonTournaments.set(season, new Set());
+      }
+      seasonTournaments.get(season).add(tournament.id || tournament.name);
     }
   }
 
-  // Always add the current season since the rower is registering for a Dev race NOW
+  // Add the upcoming regatta as +1 to the current season
   const currentSeason = getCurrentSeason();
-  devSeasons.add(currentSeason);
+  if (!seasonTournaments.has(currentSeason)) {
+    seasonTournaments.set(currentSeason, new Set());
+  }
+  seasonTournaments.get(currentSeason).add(`Upcoming`);
+
+  const validSeasons = [];
+  for (const [season, tournamentsSet] of seasonTournaments.entries()) {
+    if (tournamentsSet.size >= 2) {
+      validSeasons.push(season);
+    }
+  }
 
   return {
-    count: devSeasons.size,
-    seasons: Array.from(devSeasons).sort(),
+    count: validSeasons.length,
+    seasons: validSeasons.sort(),
   };
 }
 
