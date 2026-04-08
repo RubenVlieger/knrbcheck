@@ -26,27 +26,36 @@ async function foysGet(url) {
   return res.json();
 }
 
+let cachedTournaments = null;
+let lastTournamentsFetch = 0;
+
 /**
  * GET /api/tournaments - list all tournaments for the current season
  */
 app.get('/api/tournaments', async (req, res) => {
   try {
+    // Return cached tournaments if fetched within the last hour
+    if (cachedTournaments && (Date.now() - lastTournamentsFetch < 3600000)) {
+      return res.json({ tournaments: cachedTournaments });
+    }
+
     const FEDERATION_ID = '348625af-0eff-47b7-80d6-dfa6b5a8ad19';
     const SEASON_ID = 27; // 2025-2026 season
 
     const url = `${FOYS_BASE}/tournaments?federationId=${FEDERATION_ID}&seasonId=${SEASON_ID}&searchString=&pageSize=1000&registrationsFilter=false&resultsFilter=false`;
     const data = await foysGet(url);
 
-    const baseTournaments = (data.items || []).filter(t => t.hasRegistrations);
+    // Get ALL tournaments (don't filter by hasRegistrations because that hides future regattas)
+    // Only filter out strictly cancelled tournaments just in case
+    const baseTournaments = (data.items || []).filter(t => t.status !== 'Cancelled');
 
     const validTournaments = [];
     
     // Batch fetch matches for each tournament to see if it has Classifying fields
-    for (let i = 0; i < baseTournaments.length; i += 5) {
-      const chunk = baseTournaments.slice(i, i + 5);
+    for (let i = 0; i < baseTournaments.length; i += 10) {
+      const chunk = baseTournaments.slice(i, i + 10);
       await Promise.all(chunk.map(async (t) => {
         try {
-          // Temporarily use the same fetch method to check for matches
           const matchUrl = `${FOYS_BASE}/matches?tournamentId=${t.id}`;
           const matchData = await foysGet(matchUrl);
           
@@ -78,6 +87,10 @@ app.get('/api/tournaments', async (req, res) => {
         status: t.publicTournamentStatus,
       }))
       .sort((a, b) => new Date(a.firstDate) - new Date(b.firstDate));
+
+    // Cache the results
+    cachedTournaments = tournaments;
+    lastTournamentsFetch = Date.now();
 
     res.json({ tournaments });
   } catch (err) {
