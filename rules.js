@@ -315,12 +315,7 @@ function checkGevorderdeCrew(rowers, isSculling, isEight) {
 
     const rowerViolations = [];
 
-    // Flag individual rowers who are way above the average limit
-    if (relevantPoints >= 10) {
-      rowerViolations.push(
-        `Heeft ${relevantPoints} ${isEight ? 'gecombineerde' : (isSculling ? 'scull' : 'sweep')} punten. Zeer hoog voor Gevorderde.`
-      );
-    }
+    // Remove individual warning here as requested by user
 
     rowerResults.push({
       name: rower.fullName,
