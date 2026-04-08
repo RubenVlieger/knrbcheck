@@ -1,8 +1,12 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
 /* ============================================
    KNRB Regatta Checker – Design System
    ============================================ */
 
 :root {
+  --font-main: 'Outfit', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
   --bg-primary: #0a0e1a;
   --bg-secondary: #111827;
   --bg-card: #1a1f35;
@@ -45,7 +49,7 @@
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-main);
   background: var(--bg-primary);
   color: var(--text-primary);
   line-height: 1.6;
@@ -153,8 +157,8 @@ input[type="text"] {
   border-radius: var(--radius-sm);
   padding: 12px 16px;
   color: var(--text-primary);
-  font-family: inherit;
-  font-size: 0.9rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
   transition: border-color var(--transition), box-shadow var(--transition);
   outline: none;
 }
@@ -494,6 +498,8 @@ select:focus {
 }
 
 .points-cell {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
   font-variant-numeric: tabular-nums;
 }
 
