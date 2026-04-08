@@ -38,7 +38,7 @@ app.get('/api/tournaments', async (req, res) => {
     const data = await foysGet(url);
 
     const tournaments = (data.items || [])
-      .filter(t => t.hasMatches) // Only show tournaments that actually have matches to check
+      .filter(t => t.hasRegistrations) // Only show tournaments that have registrations
       .map(t => ({
         id: t.id,
         name: (t.name || '').trim(),
