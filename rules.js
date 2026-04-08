@@ -65,9 +65,6 @@ function classifyField(matchCategoryName, matchBoatCategoryCode) {
  * tournament for the current season.
  */
 function countDevSeasons(raceHistory, personName) {
-  if (personName && personName.includes("Ruben Vlieger")) {
-    require('fs').writeFileSync('ruben_history_debug.json', JSON.stringify(raceHistory, null, 2));
-  }
   const seasonTournaments = new Map();
 
   for (const tournament of raceHistory) {
