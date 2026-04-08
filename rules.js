@@ -270,13 +270,8 @@ function checkNieuwelingCrew(rowers, isSculling, combinedNieuweling) {
     }
     pointSum += relevantPoints;
 
+    // Elite/Gevorderde check removed as per user request (Art 13 just checks average < 2.0)
     const rowerViolations = [];
-
-    if (sculling >= 6 || sweeping >= 6) {
-      rowerViolations.push(
-        `Heeft ${sculling} scull en ${sweeping} sweep punten. Met ≥6 in één type is de roeier Elite/Gevorderde niveau en mag niet starten in Nieuweling.`
-      );
-    }
 
     rowerResults.push({
       name: rower.fullName,
