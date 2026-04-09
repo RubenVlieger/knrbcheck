@@ -96,18 +96,31 @@ function isClassifyingSeniorRace(race) {
   // Exclude masters
   if (codeLower.includes('masters') || codeLower.includes('mast')) return false;
 
-  // Exclude competitie (Art. 14): Ervaren, Onervaren, Club, Lente, Talenten
+  // Exclude competitie (Art. 14) by category name
+  // Ervaren, Onervaren, Club, Lente, Talenten are all competitie-level, NOT classifying
   if (catLower.includes('competitie') || catLower.includes('ervaren') ||
       catLower.includes('onervaren') || catLower.includes('club') ||
       catLower.includes('lente') || catLower.includes('talent')) return false;
 
-  // Exclude codes that look like competitie patterns
-  // Competitie matchCodes often have patterns like "MCE", "MCO", "VCE", etc.
-  if (codeLower.match(/^.{0,2}c[eotil]/)) return false;
+  // Exclude competitie by matchCode patterns
+  // These appear in race history as abbreviated codes:
+  //   "MErv 1x" = Mannen Ervaren competitie
+  //   "VOnerv C4+" = Vrouwen Onervaren competitie
+  //   "MClub 4+" = Mannen Club competitie
+  //   "VLente 1x" = Vrouwen Lente competitie
+  //   "MTalent 1x" = Mannen Talenten competitie
+  // Key: "onerv" catches Onervaren, "erv" catches Ervaren (but NOT "gev" = Gevorderde)
+  if (codeLower.includes('onerv') || codeLower.includes('club') ||
+      codeLower.includes('lente') || codeLower.includes('talent') ||
+      codeLower.includes('tal')) return false;
+  // "erv" catches Ervaren competitie, but NOT Gevorderde (which has "gev")
+  if (codeLower.includes('erv') && !codeLower.includes('gev')) return false;
+  // Also exclude if matchCategoryName explicitly says competitie-level
+  // Some APIs use abbreviated names like "Erv" or "Onrv"
+  if (catLower.includes('erv') && !catLower.includes('gevorderde') && !catLower.includes('gev')) return false;
 
   // Include known classifying senior prefixes
-  // M/V/LM/LV/O/H/D followed by class indicators: E, G, N, B, Dev, Ej
-  // Or just M/V/O prefix (plain senior fields)
+  // M/V/LM/LV/O/H/D followed by class indicators
   if (codeLower.match(/^(l?[mvhdo])/)) return true;
 
   return false;
