@@ -66,11 +66,11 @@ function classifyField(matchCategoryName, matchBoatCategoryCode) {
   let category = 'unknown';
   if (cat === 'development') category = 'development';
   else if (cat === 'nieuweling') category = 'nieuweling';
-  else if (cat === 'beginner') category = 'beginner';
+  else if (cat === 'beginner' || cat === 'senioren b') category = 'beginner';
   else if (cat.includes('gevorderde') || cat.includes('advanced')) category = 'gevorderde';
   else if (cat === 'elite') category = 'elite';
   else if (cat.includes('eerstejaars') || cat.includes('first-year')) category = 'eerstejaars';
-  else if (cat.includes('junior') || cat.includes('junioren')) category = 'junior';
+  else if (cat.includes('junior') || cat.includes('junioren') || cat === 'achttien' || cat === 'zestien') category = 'junior';
 
   return { category, boatType: boat, isEight, isSculling, isFourOrQuad };
 }
@@ -108,24 +108,36 @@ function isClassifyingSeniorRace(race) {
       catLower.includes('varsity')) return false;
 
   // Exclude competitie by matchCode patterns.
-  // FOYS classifying senior codes ALWAYS have a class indicator after the gender prefix:
-  //   E=Elite, G=Gevorderde, N=Nieuweling, B=Beginner, Dev=Development, Ej=Eerstejaars
-  //   Examples: "ME 4-", "MG-B 1x", "MN 1x", "MDev 4-", "VEj 8+"
+  // These MUST be checked before the whitelist because their codes
+  // superficially match the classifying pattern (e.g. "VErv" has V+E).
   //
-  // Competitie codes do NOT have these indicators:
-  //   "MErv" = Ervaren, "VOnerv" = Onervaren, "MClub" = Club, "MOv" = Overnaeds
-  //   "H4+" = plain Heren (competitie), "V4+" = plain Vrouwen (competitie)
-  //   "D4+" = plain Dames (competitie), "Mix 8+" = Mixed (competitie)
-  //   "Lente", "Talent", "Ov" = all competitie
-  //
-  // Match: gender prefix (M/V/LM/LV/O/H/D) + KNOWN class indicator
-  // This specifically excludes plain "H4+", "V4+", "D4+" etc. without a class
-  const classifyingPattern = /^l?[mvhdo]\s*(e|g|g-|n|b|dev|ej)/;
+  // Competitie patterns in the code:
+  //   "MErv" = Ervaren,   "VErv" = Vrouwen Ervaren,    "HErv" = Heren Ervaren
+  //   "VOnerv" = Onervaren, "MOnerv" = Onervaren
+  //   "MClub" = Club,      "VLente" = Lente,             "MTalent" = Talenten
+  //   "MOv" = Overnaeds,   "VOv" = Vrouwen Overnaeds,   "HOv" = Heren Overnaeds
+  //   "H4+" = Heren competitie, "V4+" = Vrouwen,  "D4+" = Dames
+  //   "Mix 8+" = Mixed
+
+  if (codeLower.includes('onerv') || codeLower.includes('club') ||
+      codeLower.includes('lente') || codeLower.includes('talent') ||
+      codeLower.includes('tal') || codeLower.includes('ov')) return false;
+  // "erv" catches Ervaren (MErv, VEnv, HErv) but NOT Gevorderde (has "gev")
+  if (codeLower.includes('erv') && !codeLower.includes('gev')) return false;
+  // Also exclude if matchCategoryName says competitie-level
+  if (catLower.includes('erv') && !catLower.includes('gevorderde') && !catLower.includes('gev')) return false;
+
+// Include: gender prefix + KNOWN class indicator
+  // FOYS classifying codes ALWAYS have: E=Elite, G=Gevorderde, N=Nieuweling,
+  // B=Beginner, Dev=Development, Ej=Eerstejaars, SB=Senioren B (Beginner)
+  // The class indicator must be followed by a non-letter boundary to distinguish
+  // "ME 4-" (Elite) from "MErv 1x" (Ervaren).
+  const classifyingPattern = /^l?[mvhdo]\s*(e|g(?!ev)|g-|n(?!erv)|b(?!ov)|dev|ej|sb)/i;
   if (classifyingPattern.test(codeLower)) return true;
 
   // Also check category name for known classifying categories
   if (catLower === 'elite' || catLower === 'gevorderde' || catLower === 'advanced' ||
-      catLower === 'nieuweling' || catLower === 'beginner' ||
+      catLower === 'nieuweling' || catLower === 'beginner' || catLower === 'senioren b' ||
       catLower === 'development' || catLower === 'eerstejaars' ||
       catLower.includes('first-year')) return true;
 

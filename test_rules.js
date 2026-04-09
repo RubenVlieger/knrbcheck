@@ -93,6 +93,9 @@ const classifyingTrue = [
   ['LM G 1x', 'Gevorderde'],
   ['LV N 1x', 'Nieuweling'],
   ['OE 4-', 'Elite'],
+  ['VSB 1x', 'Senioren B'],
+  ['MSB 4+', 'Senioren B'],
+  ['SB 1x', 'Senioren B'],
 ];
 
 for (const [code, cat] of classifyingTrue) {
@@ -109,6 +112,9 @@ const classifyingFalse = [
   ['Ov2+', 'Overnaeds'],
   ['VOnerv C4+', 'Onervaren'],
   ['MErv 1x', 'Ervaren'],
+  ['VErv 8+', 'Ervaren'],
+  ['VErv 8+', ''],
+  ['MErv 1x', ''],
   ['MClub 4+', 'Club'],
   ['VLente 1x', 'Lente'],
   ['MTalent 1x', 'Talenten'],
