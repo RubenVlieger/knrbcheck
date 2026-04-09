@@ -429,7 +429,7 @@ function renderRowerTable(crew) {
   if (isDev) {
     headers += `<th>Dev seizoenen</th>`;
   } else if (isEerstejaars) {
-    headers += `<th>Eerstejaars?</th>`;
+    headers += `<th>Punten 1 sept</th><th>Klass. seizoenen</th><th>Eerstejaars?</th>`;
   } else if (isJunior) {
     headers += `<th>Geboortejaar</th>`;
   }
@@ -446,8 +446,17 @@ function renderRowerTable(crew) {
     if (isDev) {
       cells += `<td class="points-cell">${r.devSeasonCount || 0} (${(r.devSeasons || []).join(', ') || '-'})</td>`;
     } else if (isEerstejaars) {
+      const ptsStart = r.pointsAtSeasonStart !== undefined ? r.pointsAtSeasonStart : '?';
+      const seasonCount = r.classifyingSeasonCount || '?';
+      const seasons = (r.classifyingSeasons || []).join(', ') || '-';
       const isEJ = r.isEerstejaars;
-      cells += `<td>${isEJ ? '<span style="color:var(--green)">Ja</span>' : '<span style="color:var(--amber)">Nee (' + (r.classifyingSeasonCount || '?') + ' seizoenen)</span>'}</td>`;
+      const reason = r.eerstejaarsReason || '';
+      const ejLabel = isEJ
+        ? `<span style="color:var(--green)">Ja</span>${reason ? '<br><small style="color:var(--text-muted)">' + escapeHtml(reason) + '</small>' : ''}`
+        : `<span style="color:var(--amber)">Nee</span>`;
+      cells += `<td class="points-cell">${ptsStart}</td>`;
+      cells += `<td class="points-cell">${seasonCount} (${seasons})</td>`;
+      cells += `<td>${ejLabel}</td>`;
     } else if (isJunior) {
       cells += `<td class="points-cell">${r.yearOfBirth || '?'}</td>`;
     }

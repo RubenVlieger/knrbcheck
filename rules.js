@@ -1,21 +1,17 @@
 /**
  * KNRB Regatta Crew Eligibility Rule Engine
  * Based on: Reglement voor Roeiwedstrijden, versie 22 november 2025
- * Articles 11 (Junioren), 12 (Masters), 13 (Senioren)
+ * Articles 11 (Junioren), 12 (Masters), 13 (Senioren), 14 (Competitie)
  */
 
 // ──────────────────────────────────────────────
 // Season helpers
 // ──────────────────────────────────────────────
 
-/**
- * Determine which season a date falls into.
- * Season runs Sept 1 – Aug 31.
- */
 function getSeasonForDate(dateStr) {
   const d = new Date(dateStr);
   const year = d.getFullYear();
-  const month = d.getMonth(); // 0-based
+  const month = d.getMonth();
   if (month >= 8) {
     return `${year}-${year + 1}`;
   } else {
@@ -25,6 +21,34 @@ function getSeasonForDate(dateStr) {
 
 function getCurrentSeason() {
   return getSeasonForDate(new Date().toISOString());
+}
+
+/**
+ * Calculate points at the start of the current season (Sept 1).
+ * Subtract points earned during the current season from current totals.
+ */
+function getPointsAtSeasonStart(personData) {
+  const currentSeason = getCurrentSeason();
+  let scullingSubtract = 0;
+  let sweepingSubtract = 0;
+
+  if (personData?.rowingPoints) {
+    for (const pt of personData.rowingPoints) {
+      if (getSeasonForDate(pt.date) === currentSeason) {
+        if (pt.type === 'Sculling') scullingSubtract += pt.point;
+        else if (pt.type === 'Sweeping' || pt.type === 'Sweep') sweepingSubtract += pt.point;
+      }
+    }
+  }
+
+  const sculling = Math.max(0, (personData?.totalScullingPoints || 0) - scullingSubtract);
+  const sweeping = Math.max(0, (personData?.totalSweepingPoints || 0) - sweepingSubtract);
+
+  return {
+    sculling,
+    sweeping,
+    total: sculling + sweeping,
+  };
 }
 
 // ──────────────────────────────────────────────
@@ -37,7 +61,6 @@ function classifyField(matchCategoryName, matchBoatCategoryCode) {
 
   const isEight = boat.includes('8+');
   const isSculling = boat.includes('x');
-  // Fours: 4+, 4-, 4x, 4x+
   const isFourOrQuad = boat.includes('4');
 
   let category = 'unknown';
@@ -46,25 +69,55 @@ function classifyField(matchCategoryName, matchBoatCategoryCode) {
   else if (cat === 'beginner') category = 'beginner';
   else if (cat.includes('gevorderde') || cat.includes('advanced')) category = 'gevorderde';
   else if (cat === 'elite') category = 'elite';
-  else if (cat.includes('eerstejaars') || cat.includes('first-year') || cat.includes('eerstejaars')) category = 'eerstejaars';
-  // Junior fields: matchCategoryName is often just the name, but the matchGeneratedCode starts with M18/V18/M16 etc.
-  // We detect juniors by checking if the name contains '18' or '16' age indicators
+  else if (cat.includes('eerstejaars') || cat.includes('first-year')) category = 'eerstejaars';
   else if (cat.includes('junior') || cat.includes('junioren')) category = 'junior';
 
   return { category, boatType: boat, isEight, isSculling, isFourOrQuad };
 }
 
 // ──────────────────────────────────────────────
-// Dev season counting
+// Is a race classifying? (Art. 13, 14)
 // ──────────────────────────────────────────────
 
 /**
- * Count distinct seasons in which a rower participated in Development fields.
- * A season ONLY counts if they started in a Dev field at 2 OR MORE distinct regattas.
- * IMPORTANT: We also count the CURRENT regatta they are registering for as +1 
- * tournament for the current season.
+ * Determine if a race is in a classifying senior field (Art. 13).
+ * Excludes: junior (Art. 11), masters (Art. 12), competitie (Art. 14).
+ *
+ * Classifying senior fields: Elite, Gevorderde, Nieuweling, Beginner, Eerstejaars, Development.
+ * Non-classifying: Competitie (Ervaren, Onervaren, Club, Lente, Talenten).
  */
-function countDevSeasons(raceHistory, personName) {
+function isClassifyingSeniorRace(race) {
+  const codeLower = (race.matchCode || '').toLowerCase();
+  const catLower = (race.matchCategoryName || '').toLowerCase();
+
+  // Exclude junior fields (age-coded: 18, 16, 15, 14)
+  if (codeLower.includes('18') || codeLower.includes('16') || codeLower.includes('15') || codeLower.includes('14')) return false;
+
+  // Exclude masters
+  if (codeLower.includes('masters') || codeLower.includes('mast')) return false;
+
+  // Exclude competitie (Art. 14): Ervaren, Onervaren, Club, Lente, Talenten
+  if (catLower.includes('competitie') || catLower.includes('ervaren') ||
+      catLower.includes('onervaren') || catLower.includes('club') ||
+      catLower.includes('lente') || catLower.includes('talent')) return false;
+
+  // Exclude codes that look like competitie patterns
+  // Competitie matchCodes often have patterns like "MCE", "MCO", "VCE", etc.
+  if (codeLower.match(/^.{0,2}c[eotil]/)) return false;
+
+  // Include known classifying senior prefixes
+  // M/V/LM/LV/O/H/D followed by class indicators: E, G, N, B, Dev, Ej
+  // Or just M/V/O prefix (plain senior fields)
+  if (codeLower.match(/^(l?[mvhdo])/)) return true;
+
+  return false;
+}
+
+// ──────────────────────────────────────────────
+// Dev season counting
+// ──────────────────────────────────────────────
+
+function countDevSeasons(raceHistory) {
   const seasonTournaments = new Map();
 
   for (const tournament of raceHistory) {
@@ -89,20 +142,16 @@ function countDevSeasons(raceHistory, personName) {
     }
   }
 
-  // Add the upcoming regatta as +1 to the current season
   const currentSeason = getCurrentSeason();
   if (!seasonTournaments.has(currentSeason)) {
     seasonTournaments.set(currentSeason, new Set());
   }
-  seasonTournaments.get(currentSeason).add(`Upcoming`);
+  seasonTournaments.get(currentSeason).add('Upcoming');
 
   const validSeasons = [];
-  
-  // Unconditionally count the current season because they are registering for it now
   validSeasons.push(currentSeason);
   seasonTournaments.delete(currentSeason);
 
-  // For all OTHER past seasons, they only count if they started 2 or more times
   for (const [season, tournamentsSet] of seasonTournaments.entries()) {
     if (tournamentsSet.size >= 2) {
       validSeasons.push(season);
@@ -116,39 +165,38 @@ function countDevSeasons(raceHistory, personName) {
 }
 
 /**
- * Count distinct seasons in which a rower participated in ANY classifying senior field.
- * Used for eerstejaars/tweedejaars determination.
- * Also adds the current season since the rower is about to race.
+ * Count distinct seasons in which a rower participated in a CLASSIFYING SENIOR field.
+ * Used for eerstejaars determination (Art. 13.4a).
+ *
+ * Only counts senior classifying fields (Art. 13):
+ * Elite, Gevorderde, Nieuweling, Beginner, Eerstejaars, Development.
+ * Excludes: Junior (Art. 11), Masters (Art. 12), Competitie (Art. 14).
+ *
+ * Returns { count, seasons } where count includes the current season
+ * (since the rower is about to start in this field).
  */
-function countClassifyingSeasons(raceHistory) {
+function countClassifyingSeniorSeasons(raceHistory) {
   const seasons = new Set();
-  // Senior classifying categories (matchCodes that indicate senior classifying fields)
-  // These include: N (nieuweling), Dev, E (elite), G (gevorderde), B (beginner)
-  // Basically anything that is NOT a junior/masters field
-  const seniorPrefixes = ['m', 'v', 'lm', 'lv', 'o'];
 
   for (const tournament of raceHistory) {
     const tournamentDate = tournament.firstTournamentDate;
     if (!tournamentDate) continue;
 
+    let hasClassifyingRace = false;
     for (const race of (tournament.raceResults || [])) {
-      const matchCode = race.matchCode || '';
-      const codeLower = matchCode.toLowerCase();
-      // Skip junior (contains '18', '16') and masters fields
-      if (codeLower.includes('18') || codeLower.includes('16') || codeLower.includes('15') || codeLower.includes('14')) continue;
-      if (codeLower.includes('masters') || codeLower.includes('mast')) continue;
-      // If it's a senior classifying field (has match category indicators)
-      // The matchCode structure is like "MN 1x", "MDev 2x", "ME 4-", "MG-B 1x", "MB 2x", "HEj 4+"
-      // "H" prefix = old Heren designation, "D" = old Dames, "M" = Mannen, "V" = Vrouwen
-      // We count any participation that looks like a senior classifying field
-      if (codeLower.match(/^(l?[mvhdo])/)) {
-        const season = getSeasonForDate(tournamentDate);
-        seasons.add(season);
+      if (isClassifyingSeniorRace(race)) {
+        hasClassifyingRace = true;
+        break;
       }
+    }
+
+    if (hasClassifyingRace) {
+      const season = getSeasonForDate(tournamentDate);
+      seasons.add(season);
     }
   }
 
-  // Add current season
+  // Add current season (they are about to start in this classifying field)
   seasons.add(getCurrentSeason());
 
   return {
@@ -158,14 +206,9 @@ function countClassifyingSeasons(raceHistory) {
 }
 
 // ──────────────────────────────────────────────
-// DEVELOPMENT check (Art. 13, lines 166-168)
+// DEVELOPMENT check (Art. 13.4e,f)
 // ──────────────────────────────────────────────
 
-/**
- * Dev 4-: collectively ≤ 10 points on Jan 1
- * Dev 2x: collectively ≤ 5 points on Jan 1
- * Each rower: max 2 Dev seasons (current + 1 previous)
- */
 function checkDevelopmentCrew(rowers, boatType) {
   const rowerResults = [];
 
@@ -181,29 +224,12 @@ function checkDevelopmentCrew(rowers, boatType) {
   let totalCrewPoints = 0;
 
   for (const rower of rowers) {
-    const currentSeason = getCurrentSeason();
-    let scullingSubtract = 0;
-    let sweepingSubtract = 0;
+    const pointsAtStart = getPointsAtSeasonStart(rower.personData);
+    totalCrewPoints += pointsAtStart.total;
 
-    if (rower.personData?.rowingPoints) {
-      for (const pt of rower.personData.rowingPoints) {
-        if (getSeasonForDate(pt.date) === currentSeason) {
-          if (pt.type === 'Sculling') scullingSubtract += pt.point;
-          else if (pt.type === 'Sweeping' || pt.type === 'Sweep') sweepingSubtract += pt.point;
-        }
-      }
-    }
-
-    const sculling = Math.max(0, (rower.personData?.totalScullingPoints || 0) - scullingSubtract);
-    const sweeping = Math.max(0, (rower.personData?.totalSweepingPoints || 0) - sweepingSubtract);
-    const total = sculling + sweeping;
-    totalCrewPoints += total;
-
-    const devSeasons = countDevSeasons(rower.raceHistory || [], rower.fullName);
+    const devSeasons = countDevSeasons(rower.raceHistory || []);
     const rowerViolations = [];
 
-    // Season check: max 2 seasons (current + 1 previous) in Dev
-    // Since we always add the current season, > 2 means they already raced Dev in 2+ previous seasons
     if (devSeasons.count > 2) {
       rowerViolations.push(
         `Heeft in ${devSeasons.count} seizoenen in Development gestart (${devSeasons.seasons.join(', ')}). Max toegestaan: 2 (huidig + 1 eerder).`
@@ -213,9 +239,9 @@ function checkDevelopmentCrew(rowers, boatType) {
     rowerResults.push({
       name: rower.fullName,
       personId: rower.personId,
-      scullingPoints: sculling,
-      sweepingPoints: sweeping,
-      totalPoints: total,
+      scullingPoints: pointsAtStart.sculling,
+      sweepingPoints: pointsAtStart.sweeping,
+      totalPoints: pointsAtStart.total,
       devSeasons: devSeasons.seasons,
       devSeasonCount: devSeasons.count,
       violations: rowerViolations,
@@ -245,14 +271,9 @@ function checkDevelopmentCrew(rowers, boatType) {
 }
 
 // ──────────────────────────────────────────────
-// NIEUWELING check (Art. 13, line 119)
+// NIEUWELING check (Art. 13.2d)
 // ──────────────────────────────────────────────
 
-/**
- * Crew average < 2.0 points.
- * combinedNieuweling: true = use scull+sweep combined, false = relevant type only.
- * Also flags any rower with ≥6 pts in either type (elite-level).
- */
 function checkNieuwelingCrew(rowers, isSculling, combinedNieuweling) {
   const rowerResults = [];
   let pointSum = 0;
@@ -270,7 +291,6 @@ function checkNieuwelingCrew(rowers, isSculling, combinedNieuweling) {
     }
     pointSum += relevantPoints;
 
-    // Elite/Gevorderde check removed as per user request (Art 13 just checks average < 2.0)
     const rowerViolations = [];
 
     rowerResults.push({
@@ -309,13 +329,9 @@ function checkNieuwelingCrew(rowers, isSculling, combinedNieuweling) {
 }
 
 // ──────────────────────────────────────────────
-// GEVORDERDE check (Art. 13, lines 113-117)
+// GEVORDERDE check (Art. 13.2b,c)
 // ──────────────────────────────────────────────
 
-/**
- * Eights (8+): crew average < 6.0 points (sweep + scull COMBINED)
- * Other boats: crew average < 6.0 points in the RELEVANT rowing type (sweep or scull)
- */
 function checkGevorderdeCrew(rowers, isSculling, isEight) {
   const rowerResults = [];
   let pointSum = 0;
@@ -327,15 +343,13 @@ function checkGevorderdeCrew(rowers, isSculling, isEight) {
 
     let relevantPoints;
     if (isEight) {
-      relevantPoints = total; // 8+: combined
+      relevantPoints = total;
     } else {
-      relevantPoints = isSculling ? sculling : sweeping; // relevant type
+      relevantPoints = isSculling ? sculling : sweeping;
     }
     pointSum += relevantPoints;
 
     const rowerViolations = [];
-
-    // Remove individual warning here as requested by user
 
     rowerResults.push({
       name: rower.fullName,
@@ -374,13 +388,9 @@ function checkGevorderdeCrew(rowers, isSculling, isEight) {
 }
 
 // ──────────────────────────────────────────────
-// BEGINNER check (Art. 13, line 121)
+// BEGINNER check (Art. 13.2e)
 // ──────────────────────────────────────────────
 
-/**
- * Beginner: Each rower must have 0 points in the relevant rowing type
- * AND < 6 points in the other type.
- */
 function checkBeginnerCrew(rowers, isSculling) {
   const rowerResults = [];
 
@@ -435,51 +445,77 @@ function checkBeginnerCrew(rowers, isSculling) {
 }
 
 // ──────────────────────────────────────────────
-// EERSTEJAARS check (Art. 13, lines 155-164)
+// EERSTEJAARS check (Art. 13.4a-g)
 // ──────────────────────────────────────────────
 
 /**
- * First-year senior fields:
- * - Rower must be in their first season in a classifying senior field after junior age
- * - Must have had 0 total points at start of season
+ * Eerstejaars (First-year senior) check per Art. 13.4:
  *
- * Crew composition (8+): only eerstejaars + max 2 non-eerstejaars with 0 pts on Sept 1
- * Crew composition (4+/4x): only eerstejaars + max 1 non-eerstejaars with 0 pts on Sept 1
+ * Art. 13.4a: A rower is eerstejaars in the first season they start in a classifying
+ * senior field after junior age, provided they had 0 total points (boord + scull) at
+ * the start of the season (Sept 1).
  *
- * We approximate: a rower is eerstejaars if they have only 1 classifying senior season
- * (the current one). If they have ≥ 2, they are NOT eerstejaars.
- * We also flag any rower with > 0 total points as potentially not qualifying.
+ * Junior exception (Art. 13.4a sentence 2): Juniors who already started in a classifying
+ * field AND had 0 points at the start of the season are also allowed to start as eerstejaars.
+ *
+ * Art. 13.4c (8+): Only eerstejaars rowers + max 2 non-eerstejaars with 0 pts on Sept 1.
+ * Art. 13.4d (4+/4x): Only eerstejaars rowers + max 1 non-eerstejaars with 0 pts on Sept 1.
+ * Art. 13.4f (smaller boats): Only eerstejaars rowers.
  */
-function checkEerstejaarsCrewUnavailable(rowers, boatType, isEight, isFourOrQuad) {
+function checkEerstejaarsCrew(rowers, boatType, isEight, isFourOrQuad) {
   const rowerResults = [];
   let nonEerstejaarsCount = 0;
 
-  // Max non-eerstejaars allowed
   let maxNonEerstejaars;
   if (isEight) {
     maxNonEerstejaars = 2;
   } else if (isFourOrQuad) {
     maxNonEerstejaars = 1;
   } else {
-    maxNonEerstejaars = 0; // smaller boats: only eerstejaars
+    maxNonEerstejaars = 0;
   }
 
+  const currentYear = new Date().getFullYear();
+
   for (const rower of rowers) {
+    const pointsAtStart = getPointsAtSeasonStart(rower.personData);
     const sculling = rower.personData?.totalScullingPoints || 0;
     const sweeping = rower.personData?.totalSweepingPoints || 0;
-    const total = sculling + sweeping;
+    const totalCurrent = sculling + sweeping;
 
-    const classifyingSeasons = countClassifyingSeasons(rower.raceHistory || []);
-    const isEerstejaars = classifyingSeasons.count <= 1;
+    const classifyingInfo = countClassifyingSeniorSeasons(rower.raceHistory || []);
+    const yearOfBirth = rower.personData?.yearOfBirth || 0;
+
+    // Junior age check: born in year >= (currentYear - 18) means still junior age
+    // Junior-18: age on Jan 1 <= 18, so born >= currentYear - 18
+    const isStillJuniorAge = yearOfBirth > 0 && (currentYear - yearOfBirth) <= 18;
+
+    // Art. 13.4a: Eerstejaars determination
+    // Must have 0 total points at start of season (boord + scull combined)
+    const hadZeroPointsAtStart = pointsAtStart.total === 0;
+
+    let isEerstejaars = false;
+    let eerstejaarsReason = '';
+
+    if (hadZeroPointsAtStart && classifyingInfo.count <= 1) {
+      // First season in a classifying senior field, 0 points at start → eerstejaars
+      isEerstejaars = true;
+      eerstejaarsReason = 'Eerste seizoen in klasserend veld, 0 punten op 1 sept';
+    } else if (hadZeroPointsAtStart && isStillJuniorAge) {
+      // Junior exception (Art. 13.4a sentence 2):
+      // Juniors who already started in classifying fields but had 0 points at season start
+      isEerstejaars = true;
+      eerstejaarsReason = 'Juniorexeptie: 0 punten op 1 sept, nog junioreleeftijd';
+    }
 
     const rowerViolations = [];
 
     if (!isEerstejaars) {
       nonEerstejaarsCount++;
-      // Non-eerstejaars is only allowed if they had 0 points on Sept 1
-      if (total > 0) {
+      // Non-eerstejaars can only join if they had 0 points on Sept 1
+      if (!hadZeroPointsAtStart) {
         rowerViolations.push(
-          `Niet eerstejaars (${classifyingSeasons.count} seizoenen: ${classifyingSeasons.seasons.join(', ')}) en heeft ${total} punten. Niet-eerstejaars mogen alleen meedoen met 0 punten op 1 sept.`
+          `Niet eerstejaars (${classifyingInfo.count} klasserende seizoenen, ${pointsAtStart.total} punten op 1 sept). Niet-eerstejaars mogen alleen meedoen met 0 punten op 1 sept.`
         );
       }
     }
@@ -489,10 +525,13 @@ function checkEerstejaarsCrewUnavailable(rowers, boatType, isEight, isFourOrQuad
       personId: rower.personId,
       scullingPoints: sculling,
       sweepingPoints: sweeping,
-      totalPoints: total,
-      classifyingSeasons: classifyingSeasons.seasons,
-      classifyingSeasonCount: classifyingSeasons.count,
+      totalPoints: totalCurrent,
+      pointsAtSeasonStart: pointsAtStart.total,
+      classifyingSeasons: classifyingInfo.seasons,
+      classifyingSeasonCount: classifyingInfo.count,
+      yearOfBirth,
       isEerstejaars,
+      eerstejaarsReason,
       violations: rowerViolations,
     });
   }
@@ -521,22 +560,14 @@ function checkEerstejaarsCrewUnavailable(rowers, boatType, isEight, isFourOrQuad
 }
 
 // ──────────────────────────────────────────────
-// JUNIOR age check (Art. 11, lines 37-54)
+// JUNIOR age check (Art. 11)
 // ──────────────────────────────────────────────
 
-/**
- * Junior-18: rower must be a Junior (age check via yearOfBirth).
- * Junior-16: rower must not have reached age 16 on Jan 1 of current year.
- *
- * We detect the age limit from the matchGeneratedCode (e.g. M18, V16).
- * yearOfBirth is available from the person API.
- */
 function checkJuniorCrew(rowers, matchGeneratedCode) {
   const rowerResults = [];
   const currentYear = new Date().getFullYear();
 
-  // Detect age limit from code
-  let ageLimit = 18; // default
+  let ageLimit = 18;
   if (matchGeneratedCode && matchGeneratedCode.includes('16')) {
     ageLimit = 16;
   } else if (matchGeneratedCode && matchGeneratedCode.includes('15')) {
@@ -589,13 +620,9 @@ function checkJuniorCrew(rowers, matchGeneratedCode) {
 }
 
 // ──────────────────────────────────────────────
-// ELITE check (Art. 13, line 111)
+// ELITE check (Art. 13.2a)
 // ──────────────────────────────────────────────
 
-/**
- * Elite: anyone may start, no point restrictions.
- * We still show rower info for reference.
- */
 function checkEliteCrew(rowers) {
   const rowerResults = rowers.map(rower => {
     const sculling = rower.personData?.totalScullingPoints || 0;
@@ -653,7 +680,7 @@ function checkCrew(rowers, matchCategoryName, matchBoatCategoryCode, combinedNie
     case 'eerstejaars':
       return {
         fieldType: 'Eerstejaars',
-        ...checkEerstejaarsCrewUnavailable(rowers, field.boatType, field.isEight, field.isFourOrQuad),
+        ...checkEerstejaarsCrew(rowers, field.boatType, field.isEight, field.isFourOrQuad),
       };
 
     case 'elite':
@@ -669,10 +696,9 @@ function checkCrew(rowers, matchCategoryName, matchBoatCategoryCode, combinedNie
       };
 
     default:
-      // For unknown categories (Masters, Open, etc.) still show rower data
       return {
         fieldType: matchCategoryName || field.category,
-        ...checkEliteCrew(rowers), // show data, no restrictions
+        ...checkEliteCrew(rowers),
         note: `Veldtype "${matchCategoryName || field.category}" wordt getoond zonder puntencontrole.`,
       };
   }
@@ -684,12 +710,14 @@ module.exports = {
   checkNieuwelingCrew,
   checkGevorderdeCrew,
   checkBeginnerCrew,
-  checkEerstejaarsCrewUnavailable,
+  checkEerstejaarsCrew,
   checkJuniorCrew,
   checkEliteCrew,
   classifyField,
   countDevSeasons,
-  countClassifyingSeasons,
+  countClassifyingSeniorSeasons,
   getSeasonForDate,
   getCurrentSeason,
+  getPointsAtSeasonStart,
+  isClassifyingSeniorRace,
 };
