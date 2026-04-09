@@ -10,9 +10,13 @@ services:
       - PORT=3000
     volumes:
       - ./stats.json:/app/stats.json
+      - knrbcheck-db:/app/db
     networks:
       - web-proxy
 
 networks:
   web-proxy:
     external: true
+
+volumes:
+  knrbcheck-db:

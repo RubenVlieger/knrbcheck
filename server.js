@@ -1,7 +1,9 @@
 const express = require('express');
 const path = require('path');
-const { checkCrew, classifyField } = require('./rules');
 const fs = require('fs');
+const { checkCrew, classifyField } = require('./rules');
+const { fetchMatch, fetchMatches, fetchTournaments, extractCrews, extractUniquePersonIds, computeMatchHash } = require('./foys');
+const { getPersonDataBatch, getHistoryBatch, getCachedFieldResult, setCachedFieldResult, clearAllCache, pruneExpiredEntries, getCacheStats, TTL } = require('./cache');
 
 const STATS_FILE = path.join(__dirname, 'stats.json');
 let totalChecks = 102;
@@ -11,11 +13,11 @@ try {
     const d = JSON.parse(fs.readFileSync(STATS_FILE, 'utf8'));
     totalChecks = d.totalChecks !== undefined ? d.totalChecks : 102;
   }
-} catch(e) {}
+} catch (e) {}
 
 function incrementCounter() {
   totalChecks++;
-  try { fs.writeFileSync(STATS_FILE, JSON.stringify({ totalChecks })); } catch(e) {}
+  try { fs.writeFileSync(STATS_FILE, JSON.stringify({ totalChecks })); } catch (e) {}
 }
 
 const app = express();
@@ -23,66 +25,32 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 const PORT = process.env.PORT || 3000;
-const FOYS_BASE = 'https://api.foys.io/tournament/public/api/v1';
-
-// In-memory cache for person data (avoids re-fetching within same session)
-const personCache = new Map();
-const historyCache = new Map();
-
-/**
- * Fetch JSON from FOYS API
- */
-async function foysGet(url) {
-  const res = await fetch(url, {
-    headers: { 'Accept': 'application/json' },
-  });
-  if (!res.ok) {
-    throw new Error(`FOYS API error: ${res.status} ${res.statusText} for ${url}`);
-  }
-  return res.json();
-}
 
 let cachedTournaments = null;
 let lastTournamentsFetch = 0;
 
-/**
- * GET /api/tournaments - list all tournaments for the current season
- */
 app.get('/api/tournaments', async (req, res) => {
   try {
-    // Return cached tournaments if fetched within the last hour
-    if (cachedTournaments && (Date.now() - lastTournamentsFetch < 3600000)) {
+    if (cachedTournaments && (Date.now() - lastTournamentsFetch < TTL.TOURNAMENTS)) {
       return res.json({ tournaments: cachedTournaments });
     }
 
-    const FEDERATION_ID = '348625af-0eff-47b7-80d6-dfa6b5a8ad19';
-    const SEASON_ID = 27; // 2025-2026 season
-
-    const url = `${FOYS_BASE}/tournaments?federationId=${FEDERATION_ID}&seasonId=${SEASON_ID}&searchString=&pageSize=1000&registrationsFilter=false&resultsFilter=false`;
-    const data = await foysGet(url);
-
-    // Get ALL tournaments (don't filter by hasRegistrations because that hides future regattas)
-    // Only filter out strictly cancelled tournaments just in case
+    const data = await fetchTournaments();
     const baseTournaments = (data.items || []).filter(t => t.status !== 'Cancelled');
 
     const validTournaments = [];
-    
-    // Batch fetch matches for each tournament to see if it has Classifying fields
+
     for (let i = 0; i < baseTournaments.length; i += 10) {
       const chunk = baseTournaments.slice(i, i + 10);
       await Promise.all(chunk.map(async (t) => {
         try {
-          const matchUrl = `${FOYS_BASE}/matches?tournamentId=${t.id}`;
-          const matchData = await foysGet(matchUrl);
-          
-          // Check if any match is classifying/standard KNRB field
+          const matchData = await fetchMatches(t.id);
           const hasEligibleField = matchData.some(m => {
             const cat = (m.matchCategoryName || '').toLowerCase();
-            return cat.includes('gevorderde') || cat.includes('eerstejaars') || 
-                   cat.includes('development') || cat.includes('nieuweling') || 
-                   cat.includes('beginner') || cat.includes('first-year') || cat.includes('advanced');
+            return cat.includes('gevorderde') || cat.includes('eerstejaars') ||
+              cat.includes('development') || cat.includes('nieuweling') ||
+              cat.includes('beginner') || cat.includes('first-year') || cat.includes('advanced');
           });
-
           if (hasEligibleField) {
             validTournaments.push(t);
           }
@@ -104,7 +72,6 @@ app.get('/api/tournaments', async (req, res) => {
       }))
       .sort((a, b) => new Date(a.firstDate) - new Date(b.firstDate));
 
-    // Cache the results
     cachedTournaments = tournaments;
     lastTournamentsFetch = Date.now();
 
@@ -115,16 +82,10 @@ app.get('/api/tournaments', async (req, res) => {
   }
 });
 
-/**
- * GET /api/stats - get total check counter
- */
 app.get('/api/stats', (req, res) => {
   res.json({ totalChecks });
 });
 
-/**
- * GET /api/matches - list all matches for a tournament
- */
 app.get('/api/matches', async (req, res) => {
   try {
     const { tournamentId } = req.query;
@@ -132,10 +93,8 @@ app.get('/api/matches', async (req, res) => {
       return res.status(400).json({ error: 'Missing tournamentId' });
     }
 
-    const url = `${FOYS_BASE}/matches?tournamentId=${tournamentId}&matchRegistrations=true&orderByMatchBoatCategoryCodes=true`;
-    const data = await foysGet(url);
+    const data = await fetchMatches(tournamentId);
 
-    // Return simplified match list for the dropdown
     const matches = data.map(m => ({
       id: m.id,
       code: m.code,
@@ -156,10 +115,6 @@ app.get('/api/matches', async (req, res) => {
   }
 });
 
-/**
- * POST /api/check-field - check all crews in a field
- * Body: { tournamentId, matchId, combinedNieuweling }
- */
 app.post('/api/check-field', async (req, res) => {
   try {
     const { tournamentId, matchId, combinedNieuweling = true } = req.body;
@@ -170,98 +125,43 @@ app.post('/api/check-field', async (req, res) => {
     console.log(`Checking field: tournament=${tournamentId}, match=${matchId}`);
     incrementCounter();
 
-    // 1. Fetch detailed match data with team members
-    const matchUrl = `${FOYS_BASE}/matches?tournamentId=${tournamentId}&matchRegistrations=true&matchIds[]=${matchId}`;
-    const matchData = await foysGet(matchUrl);
-
-    if (!matchData || matchData.length === 0) {
+    const match = await fetchMatch(tournamentId, matchId);
+    if (!match) {
       return res.status(404).json({ error: 'Match not found' });
     }
 
-    const match = matchData[0];
-    const { matchCategoryName, matchBoatCategoryCode } = match;
+    const matchHash = computeMatchHash(match);
 
+    const cachedResult = getCachedFieldResult(tournamentId, String(matchId), matchHash);
+    if (cachedResult) {
+      console.log(`Cache HIT for field ${matchId} (hash: ${matchHash})`);
+      return res.json(cachedResult);
+    }
+
+    console.log(`Cache MISS for field ${matchId} (hash: ${matchHash})`);
+
+    const { matchCategoryName, matchBoatCategoryCode } = match;
     console.log(`Match: ${match.matchFullName} (${matchCategoryName} / ${matchBoatCategoryCode})`);
 
-    // 2. Extract all crews (teams) from registrations
-    const crews = [];
-    for (const registration of (match.registrations || [])) {
-      for (const team of (registration.teams || [])) {
-        // Find the active team version
-        const activeVersion = (team.teamVersions || []).find(v => v.isActive);
-        if (!activeVersion) continue;
-
-        // Extract rowers (not coaches, not cox)
-        const rowers = (activeVersion.teamMembers || []).filter(
-          m => !m.isCoach && !m.isCox
-        );
-
-        if (rowers.length === 0) continue;
-
-        crews.push({
-          teamName: team.teamFullName || team.name,
-          organisationName: team.organisationName || team.name,
-          rowers: rowers.map(r => ({
-            fullName: r.fullName,
-            personId: r.personId,
-            boatPosition: r.boatPosition,
-            clubName: r.clubName,
-          })),
-        });
-      }
-    }
-
+    const crews = extractCrews(match);
     console.log(`Found ${crews.length} crews to check`);
 
-    // 3. Fetch person data for all unique rowers
-    const uniquePersonIds = new Set();
-    for (const crew of crews) {
-      for (const rower of crew.rowers) {
-        uniquePersonIds.add(rower.personId);
-      }
-    }
+    const uniquePersonIds = extractUniquePersonIds(crews);
+    console.log(`Fetching data for ${uniquePersonIds.length} unique rowers...`);
 
-    console.log(`Fetching data for ${uniquePersonIds.size} unique rowers...`);
-
-    // Batch fetch in chunks of 10
-    const personIds = Array.from(uniquePersonIds);
-    for (let i = 0; i < personIds.length; i += 10) {
-      const chunk = personIds.slice(i, i + 10);
-      await Promise.all(chunk.map(async (pid) => {
-        // Fetch person points
-        if (!personCache.has(pid)) {
-          try {
-            const personData = await foysGet(`${FOYS_BASE}/persons/${pid}?id=${pid}`);
-            personCache.set(pid, personData);
-          } catch (e) {
-            console.error(`Failed to fetch person ${pid}:`, e.message);
-            personCache.set(pid, { totalScullingPoints: 0, totalSweepingPoints: 0, rowingPoints: [] });
-          }
-        }
-
-        // Fetch race history
-        if (!historyCache.has(pid)) {
-          try {
-            const history = await foysGet(`${FOYS_BASE}/races/person-overview-results/${pid}`);
-            historyCache.set(pid, history);
-          } catch (e) {
-            console.error(`Failed to fetch history for ${pid}:`, e.message);
-            historyCache.set(pid, []);
-          }
-        }
-      }));
-    }
+    const [personDataMap, historyMap] = await Promise.all([
+      getPersonDataBatch(uniquePersonIds),
+      getHistoryBatch(uniquePersonIds),
+    ]);
 
     console.log('All person data fetched. Running rule checks...');
 
-    // 4. Check each crew
     const results = [];
     for (const crew of crews) {
-      // Enrich rowers with fetched data
       const enrichedRowers = crew.rowers.map(r => ({
         ...r,
-        personData: personCache.get(r.personId) || {},
-        raceHistory: historyCache.get(r.personId) || [],
+        personData: personDataMap.get(r.personId) || {},
+        raceHistory: historyMap.get(r.personId) || [],
       }));
 
       const result = checkCrew(enrichedRowers, matchCategoryName, matchBoatCategoryCode, combinedNieuweling, match.matchGeneratedCode);
@@ -274,7 +174,6 @@ app.post('/api/check-field', async (req, res) => {
       });
     }
 
-    // Sort: ILLEGAL first, then LEGAL
     results.sort((a, b) => {
       if (a.status === 'ILLEGAL' && b.status !== 'ILLEGAL') return -1;
       if (a.status !== 'ILLEGAL' && b.status === 'ILLEGAL') return 1;
@@ -284,29 +183,58 @@ app.post('/api/check-field', async (req, res) => {
     const illegalCount = results.filter(r => r.status === 'ILLEGAL').length;
     console.log(`Check complete: ${illegalCount} illegal crews out of ${results.length} total`);
 
-    res.json({
+    const response = {
       matchFullName: match.matchFullName,
       matchCategoryName,
       matchBoatCategoryCode,
       totalCrews: results.length,
       illegalCrews: illegalCount,
       results,
-    });
+    };
+
+    setCachedFieldResult(tournamentId, String(matchId), matchHash, response);
+
+    res.json(response);
   } catch (err) {
     console.error('Error checking field:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-/**
- * POST /api/clear-cache - clear person data cache
- */
 app.post('/api/clear-cache', (req, res) => {
-  personCache.clear();
-  historyCache.clear();
-  console.log('Cache cleared');
+  cachedTournaments = null;
+  lastTournamentsFetch = 0;
+  clearAllCache();
+  console.log('All caches cleared');
   res.json({ success: true });
 });
+
+app.get('/api/cache-stats', (req, res) => {
+  const mem = process.memoryUsage();
+  const cacheStats = getCacheStats();
+  res.json({
+    cache: cacheStats,
+    memory: {
+      heapUsed: `${Math.round(mem.heapUsed / 1024 / 1024)}MB`,
+      heapTotal: `${Math.round(mem.heapTotal / 1024 / 1024)}MB`,
+      rss: `${Math.round(mem.rss / 1024 / 1024)}MB`,
+    },
+    uptime: `${Math.round(process.uptime())}s`,
+  });
+});
+
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', uptime: process.uptime() });
+});
+
+setInterval(() => {
+  pruneExpiredEntries();
+}, 30 * 60 * 1000);
+
+setInterval(() => {
+  const mem = process.memoryUsage();
+  console.log(`Memory: heap=${Math.round(mem.heapUsed / 1024 / 1024)}MB, rss=${Math.round(mem.rss / 1024 / 1024)}MB`);
+}, 5 * 60 * 1000);
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`KNRB Regatta Checker running on all interfaces (0.0.0.0) at port ${PORT}`);
