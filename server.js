@@ -3,10 +3,14 @@ const path = require('path');
 const fs = require('fs');
 const { checkCrew, classifyField } = require('./rules');
 const { fetchMatch, fetchMatches, fetchTournaments, extractCrews, extractUniquePersonIds, computeMatchHash } = require('./foys');
-const { getPersonDataBatch, getHistoryBatch, getCachedFieldResult, setCachedFieldResult, clearAllCache, pruneExpiredEntries, getCacheStats, TTL } = require('./cache');
+const { getPersonDataBatch, getHistoryBatch, getCachedFieldResult, setCachedFieldResult, clearAllCache, pruneExpiredEntries, getCacheStats, setProgressCallback, TTL } = require('./cache');
 
 const STATS_FILE = path.join(__dirname, 'stats.json');
 let totalChecks = 102;
+
+function sendSSE(res, event, data) {
+  res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
 
 try {
   if (fs.existsSync(STATS_FILE)) {
@@ -211,26 +215,22 @@ app.post('/api/check-tournament', async (req, res) => {
       return res.status(400).json({ error: 'Missing tournamentId' });
     }
 
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    });
+
     console.log(`Checking full tournament: tournament=${tournamentId}`);
     const startTime = Date.now();
 
-    // 1 API call to get match list, then individual calls for full registration data
     const rawMatches = await fetchMatches(tournamentId);
-    // Handle both array and { items: [...] } response formats
     const allMatches = Array.isArray(rawMatches) ? rawMatches : (rawMatches.items || []);
     console.log(`fetchMatches returned ${allMatches.length} total matches`);
 
-    // Only check fields with registrations
     const eligibleMatches = allMatches.filter(m => (m.registrationCount || 0) > 0);
     console.log(`Found ${eligibleMatches.length} fields with registrations`);
-    if (eligibleMatches.length === 0) {
-      console.log(`Warning: no fields with registrations found. All ${allMatches.length} matches have registrationCount<=0`);
-      if (allMatches.length > 0) {
-        console.log(`First match sample: ${JSON.stringify({ id: allMatches[0].id, name: allMatches[0].matchFullName, registrationCount: allMatches[0].registrationCount }).slice(0, 200)}`);
-      }
-    }
 
-    // Pre-build: extract crews + hashes, check caches
     const uncachedMatches = [];
     const fieldResults = [];
     let totalCrews = 0;
@@ -247,9 +247,8 @@ app.post('/api/check-tournament', async (req, res) => {
     }
 
     console.log(`Cache hits: ${fieldResults.length}/${eligibleMatches.length} fields`);
+    sendSSE(res, 'start', { totalFields: eligibleMatches.length, cachedHits: fieldResults.length });
 
-    // fetchMatches returns simplified data without full registration details.
-    // We must fetch each match individually to get team member data.
     const detailedMatches = [];
     if (uncachedMatches.length > 0) {
       console.log(`Fetching full registration data for ${uncachedMatches.length} matches...`);
@@ -266,10 +265,10 @@ app.post('/api/check-tournament', async (req, res) => {
             console.error(`Failed to fetch match ${chunk[j].id}:`, result.reason?.message || result.reason);
           }
         }
+        sendSSE(res, 'details_progress', { fetched: detailedMatches.length, total: uncachedMatches.length });
       }
     }
 
-    // Collect ALL unique person IDs across ALL uncached fields
     const allCrews = [];
     const allUniquePersonIds = new Set();
     let needsAnyHistory = false;
@@ -283,6 +282,7 @@ app.post('/api/check-tournament', async (req, res) => {
         needsAnyHistory = true;
       }
       for (const crew of crews) {
+        totalCrews += crew.rowers.length > 0 ? 1 : 0;
         for (const rower of crew.rowers) {
           allUniquePersonIds.add(rower.personId);
         }
@@ -290,16 +290,32 @@ app.post('/api/check-tournament', async (req, res) => {
       allCrews.push({ match, crews });
     }
 
-    console.log(`Fetching data for ${allUniquePersonIds.size} unique rowers across ${allCrews.length} uncached fields...`);
+    // Add cached crews to totalCrews (already counted above)
+    // Recalculate totalCrews properly: cached crews + uncached crews
+    totalCrews = fieldResults.reduce((sum, f) => sum + f.totalCrews, 0);
+    for (const { crews } of allCrews) {
+      totalCrews += crews.length;
+    }
 
-    // Single batch fetch for ALL person data across ALL fields
+    const uniqueRowers = allUniquePersonIds.size;
+    console.log(`Fetching data for ${uniqueRowers} unique rowers across ${allCrews.length} uncached fields...`);
+    sendSSE(res, 'details', { totalCrews, uniqueRowers });
+
+    // Fetch person data with progress callbacks
     const [personDataMap, historyMap] = await Promise.all([
-      getPersonDataBatch(Array.from(allUniquePersonIds)),
-      needsAnyHistory ? getHistoryBatch(Array.from(allUniquePersonIds)) : Promise.resolve(new Map()),
+      getPersonDataBatch(Array.from(allUniquePersonIds), (fetched, total) =>
+        sendSSE(res, 'rowers_progress', { fetched, total })),
+      needsAnyHistory
+        ? getHistoryBatch(Array.from(allUniquePersonIds), (fetched, total) =>
+            sendSSE(res, 'history_progress', { fetched, total }))
+        : Promise.resolve(new Map()),
     ]);
 
-    // Run rules per field, cache each result
-    for (const { match, crews } of allCrews) {
+    sendSSE(res, 'rowers_done', {});
+
+    // Run rules per field, cache each result, emit progress
+    for (let i = 0; i < allCrews.length; i++) {
+      const { match, crews } = allCrews[i];
       const { matchCategoryName, matchBoatCategoryCode, matchGeneratedCode } = match;
       incrementCounter();
 
@@ -337,7 +353,17 @@ app.post('/api/check-tournament', async (req, res) => {
 
       setCachedFieldResult(tournamentId, String(match.id), matchHash, cacheResult);
       fieldResults.push({ matchId: match.id, ...cacheResult });
-      totalCrews += crewResults.length;
+
+      // Emit progress every 5 fields or at the end
+      if ((i + 1) % 5 === 0 || i === allCrews.length - 1) {
+        const completedCrews = fieldResults.reduce((sum, f) => sum + f.totalCrews, 0);
+        sendSSE(res, 'fields_progress', {
+          completed: i + 1 + fieldResults.length - allCrews.length - 1,
+          total: eligibleMatches.length,
+          completedCrews,
+          totalCrews,
+        });
+      }
     }
 
     // Sort: illegal fields first, then alphabetical
@@ -351,16 +377,22 @@ app.post('/api/check-tournament', async (req, res) => {
     const totalIllegal = fieldResults.filter(f => f.illegalCrews > 0).length;
     console.log(`Tournament check complete in ${elapsed}ms: ${totalIllegal} illegal fields out of ${fieldResults.length} total, ${totalCrews} crews`);
 
-    res.json({
+    sendSSE(res, 'complete', {
       tournamentId,
       totalFields: fieldResults.length,
       totalIllegalFields: totalIllegal,
       totalCrews,
+      uniqueRowers,
       fields: fieldResults,
     });
+
+    res.end();
   } catch (err) {
     console.error('Error checking tournament:', err);
-    res.status(500).json({ error: err.message });
+    try {
+      sendSSE(res, 'error', { error: err.message });
+      res.end();
+    } catch (e) { /* response may already be closed */ }
   }
 });
 

@@ -255,9 +255,27 @@ async function executeTournamentCheck() {
       throw new Error(errData.error || res.statusText);
     }
 
-    const data = await res.json();
-    renderTournamentResults(data);
-    updateStats();
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = parseSSEBuffer(buffer);
+      for (const event of events) {
+        handleProgressEvent(event);
+        if (event.type === 'complete') {
+          renderTournamentResults(event.data);
+          updateStats();
+          return;
+        }
+        if (event.type === 'error') {
+          throw new Error(event.data.error || 'Unknown error');
+        }
+      }
+    }
   } catch (err) {
     alert(`Fout bij controle: ${err.message}`);
   } finally {
@@ -485,7 +503,68 @@ function escapeHtml(str) {
             .replace(/"/g, '&quot;');
 }
 
-// Event listeners
+/**
+ * Parse SSE buffer into events.
+ */
+function parseSSEBuffer(buffer) {
+  const text = new TextDecoder().decode(buffer);
+  const events = [];
+  const lines = text.split('\n');
+  let eventType = null;
+  let eventData = '';
+
+  for (const line of lines) {
+    if (line.startsWith('event:')) {
+      eventType = line.slice(6).trim();
+    } else if (line.startsWith('data:')) {
+      eventData = line.slice(5).trim();
+    } else if (line === '') {
+      if (eventType && eventData) {
+        try {
+          events.push({ type: eventType, data: JSON.parse(eventData) });
+        } catch (e) {
+          console.warn('Failed to parse SSE data:', eventData);
+        }
+      }
+      eventType = null;
+      eventData = '';
+    }
+  }
+  return events;
+}
+
+/**
+ * Handle progress events from SSE stream.
+ */
+function handleProgressEvent(event) {
+  const { type, data } = event;
+
+  switch (type) {
+    case 'start':
+      loadingSub.textContent = `${data.totalFields} velden – ${data.cachedHits} uit cache`;
+      break;
+    case 'details':
+      loadingSub.textContent = `${data.totalCrews} bemanningen · ${data.uniqueRowers} unieke roeiers`;
+      break;
+    case 'details_progress':
+      loadingSub.textContent = `Velden ophalen: ${data.fetched}/${data.total}`;
+      break;
+    case 'rowers_progress':
+      loadingSub.textContent = `Roeiersdata ophalen: ${data.fetched}/${data.total}`;
+      break;
+    case 'history_progress':
+      loadingSub.textContent = `Historie ophalen: ${data.fetched}/${data.total}`;
+      break;
+    case 'rowers_done':
+      loadingSub.textContent = `Controleren van bemanningen...`;
+      break;
+    case 'fields_progress':
+      loadingSub.textContent = `${data.completedCrews}/${data.totalCrews} bemanningen gecontroleerd (${data.completed}/${data.total} velden)`;
+      break;
+    case 'complete':
+      break;
+  }
+}
 btnCheck.addEventListener('click', checkField);
 btnCheckTournament.addEventListener('click', checkTournament);
 btnConfirmYes.addEventListener('click', executeTournamentCheck);

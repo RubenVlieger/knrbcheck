@@ -101,7 +101,13 @@ function setHistoryCached(personId, data, fetchedAt) {
   stmtHistorySet.run(personId, JSON.stringify(data), fetchedAt || Date.now());
 }
 
-async function getPersonDataBatch(personIds) {
+let onProgress = null;
+
+function setProgressCallback(cb) {
+  onProgress = cb;
+}
+
+async function getPersonDataBatch(personIds, progressCallback) {
   const results = new Map();
   const toFetch = [];
 
@@ -129,12 +135,13 @@ async function getPersonDataBatch(personIds) {
         results.set(pid, { totalScullingPoints: 0, totalSweepingPoints: 0, rowingPoints: [] });
       }
     }
+    if (progressCallback) progressCallback(Math.min(i + BATCH_SIZE, toFetch.length), toFetch.length);
   }
 
   return results;
 }
 
-async function getHistoryBatch(personIds) {
+async function getHistoryBatch(personIds, progressCallback) {
   const results = new Map();
   const toFetch = [];
 
@@ -162,6 +169,7 @@ async function getHistoryBatch(personIds) {
         results.set(pid, []);
       }
     }
+    if (progressCallback) progressCallback(Math.min(i + BATCH_SIZE, toFetch.length), toFetch.length);
   }
 
   return results;
@@ -231,6 +239,7 @@ module.exports = {
   clearAllCache,
   pruneExpiredEntries,
   getCacheStats,
+  setProgressCallback,
   TTL,
   db,
 };
