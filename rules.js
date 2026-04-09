@@ -66,7 +66,8 @@ function classifyField(matchCategoryName, matchBoatCategoryCode) {
   let category = 'unknown';
   if (cat === 'development') category = 'development';
   else if (cat === 'nieuweling') category = 'nieuweling';
-  else if (cat === 'beginner' || cat === 'senioren b') category = 'beginner';
+  else if (cat === 'beginner') category = 'beginner';
+  else if (cat === 'senioren b') category = 'sb';
   else if (cat.includes('gevorderde') || cat.includes('advanced')) category = 'gevorderde';
   else if (cat === 'elite') category = 'elite';
   else if (cat.includes('eerstejaars') || cat.includes('first-year')) category = 'eerstejaars';
@@ -493,8 +494,60 @@ function checkBeginnerCrew(rowers, isSculling) {
 }
 
 // ──────────────────────────────────────────────
-// EERSTEJAARS check (Art. 13.4a-g)
+// SENIOREN B check (age ≤ 22 on Jan 1, open field)
 // ──────────────────────────────────────────────
+
+/**
+ * Senioren B (SB) is an age-restricted open field.
+ * All rowers must be ≤ 22 years old on Jan 1 of the current calendar year.
+ * No point restrictions (it's an open field, not point-limited).
+ * IS a classifying field (counts for eerstejaars determination).
+ */
+function checkSBCrew(rowers) {
+  const rowerResults = [];
+  const currentYear = new Date().getFullYear();
+
+  for (const rower of rowers) {
+    const sculling = rower.personData?.totalScullingPoints || 0;
+    const sweeping = rower.personData?.totalSweepingPoints || 0;
+    const yearOfBirth = rower.personData?.yearOfBirth || 0;
+
+    const rowerViolations = [];
+
+    if (yearOfBirth > 0) {
+      const ageOnJan1 = currentYear - yearOfBirth;
+      if (ageOnJan1 > 22) {
+        rowerViolations.push(
+          `Leeftijd op 1 jan ${currentYear}: ${ageOnJan1} jaar. Max voor Senioren B: 22 jaar.`
+        );
+      }
+    }
+
+    rowerResults.push({
+      name: rower.fullName,
+      personId: rower.personId,
+      scullingPoints: sculling,
+      sweepingPoints: sweeping,
+      totalPoints: sculling + sweeping,
+      yearOfBirth,
+      violations: rowerViolations,
+    });
+  }
+
+  const crewViolations = [];
+  for (const r of rowerResults) {
+    if (r.violations.length > 0) {
+      crewViolations.push(...r.violations.map(v => `${r.name}: ${v}`));
+    }
+  }
+
+  return {
+    rowers: rowerResults,
+    crewViolations,
+    ageLimit: 22,
+    status: crewViolations.length > 0 ? 'ILLEGAL' : 'LEGAL',
+  };
+}
 
 /**
  * Eerstejaars (First-year senior) check per Art. 13.4:
@@ -725,6 +778,12 @@ function checkCrew(rowers, matchCategoryName, matchBoatCategoryCode, combinedNie
         ...checkBeginnerCrew(rowers, field.isSculling),
       };
 
+    case 'sb':
+      return {
+        fieldType: 'Senioren B',
+        ...checkSBCrew(rowers),
+      };
+
     case 'eerstejaars':
       return {
         fieldType: 'Eerstejaars',
@@ -759,6 +818,7 @@ module.exports = {
   checkGevorderdeCrew,
   checkBeginnerCrew,
   checkEerstejaarsCrew,
+  checkSBCrew,
   checkJuniorCrew,
   checkEliteCrew,
   classifyField,

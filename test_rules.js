@@ -17,6 +17,7 @@ const {
   checkBeginnerCrew,
   checkJuniorCrew,
   checkEliteCrew,
+  checkSBCrew,
   classifyField,
 } = require('./rules');
 
@@ -451,9 +452,9 @@ test('Junior-18: age 19 on Jan 1 → ILLEGAL', () => {
 // ──────────────────────────────────────────────
 console.log('\n🏅 Senioren B (Beginner)');
 
-test('classifyField: Senioren B → beginner', () => {
+test('classifyField: Senioren B → sb', () => {
   const field = classifyField('Senioren B', '1x');
-  assert.strictEqual(field.category, 'beginner');
+  assert.strictEqual(field.category, 'sb');
   assert.strictEqual(field.isSculling, true);
 });
 
@@ -467,22 +468,22 @@ test('classifyField: Zestien → junior', () => {
   assert.strictEqual(field.category, 'junior');
 });
 
-test('SB: 0 points in relevant type, < 6 in other → LEGAL', () => {
-  const rower = makeRower('A', 2005, 0, 3, [], []);
-  const result = checkBeginnerCrew([rower], true);
+test('SB: age ≤ 22, 9 scull points → LEGAL (no point restriction)', () => {
+  const rower = makeRower('Sarah', 2004, 9, 5, [], []);
+  const result = checkSBCrew([rower]);
   assert.strictEqual(result.status, 'LEGAL');
 });
 
-test('SB: > 0 points in relevant type → ILLEGAL', () => {
-  const rower = makeRower('A', 2005, 1, 3, [], []);
-  const result = checkBeginnerCrew([rower], true);
+test('SB: age 24 → ILLEGAL (too old)', () => {
+  const rower = makeRower('Old', 2002, 0, 0, [], []);
+  const result = checkSBCrew([rower]);
   assert.strictEqual(result.status, 'ILLEGAL');
 });
 
-test('SB: 0 in relevant type but ≥ 6 in other → ILLEGAL', () => {
-  const rower = makeRower('A', 2005, 0, 6, [], []);
-  const result = checkBeginnerCrew([rower], true);
-  assert.strictEqual(result.status, 'ILLEGAL');
+test('SB: age 22 (born last year of range) → LEGAL', () => {
+  const rower = makeRower('Borderline', 2004, 5, 3, [], []);
+  const result = checkSBCrew([rower]);
+  assert.strictEqual(result.status, 'LEGAL');
 });
 
 test('isClassifying: VSB 1x (Senioren B) → true', () => {
