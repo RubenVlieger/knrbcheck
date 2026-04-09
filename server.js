@@ -214,12 +214,21 @@ app.post('/api/check-tournament', async (req, res) => {
     console.log(`Checking full tournament: tournament=${tournamentId}`);
     const startTime = Date.now();
 
-    // 1 API call — returns ALL matches with full registrations
-    const allMatches = await fetchMatches(tournamentId);
+    // 1 API call to get match list, then individual calls for full registration data
+    const rawMatches = await fetchMatches(tournamentId);
+    // Handle both array and { items: [...] } response formats
+    const allMatches = Array.isArray(rawMatches) ? rawMatches : (rawMatches.items || []);
+    console.log(`fetchMatches returned ${allMatches.length} total matches`);
 
     // Only check fields with registrations
     const eligibleMatches = allMatches.filter(m => (m.registrationCount || 0) > 0);
     console.log(`Found ${eligibleMatches.length} fields with registrations`);
+    if (eligibleMatches.length === 0) {
+      console.log(`Warning: no fields with registrations found. All ${allMatches.length} matches have registrationCount<=0`);
+      if (allMatches.length > 0) {
+        console.log(`First match sample: ${JSON.stringify({ id: allMatches[0].id, name: allMatches[0].matchFullName, registrationCount: allMatches[0].registrationCount }).slice(0, 200)}`);
+      }
+    }
 
     // Pre-build: extract crews + hashes, check caches
     const uncachedMatches = [];
@@ -239,12 +248,33 @@ app.post('/api/check-tournament', async (req, res) => {
 
     console.log(`Cache hits: ${fieldResults.length}/${eligibleMatches.length} fields`);
 
+    // fetchMatches returns simplified data without full registration details.
+    // We must fetch each match individually to get team member data.
+    const detailedMatches = [];
+    if (uncachedMatches.length > 0) {
+      console.log(`Fetching full registration data for ${uncachedMatches.length} matches...`);
+      for (let i = 0; i < uncachedMatches.length; i += 25) {
+        const chunk = uncachedMatches.slice(i, i + 25);
+        const settled = await Promise.allSettled(
+          chunk.map(m => fetchMatch(tournamentId, m.id))
+        );
+        for (let j = 0; j < settled.length; j++) {
+          const result = settled[j];
+          if (result.status === 'fulfilled' && result.value) {
+            detailedMatches.push(result.value);
+          } else {
+            console.error(`Failed to fetch match ${chunk[j].id}:`, result.reason?.message || result.reason);
+          }
+        }
+      }
+    }
+
     // Collect ALL unique person IDs across ALL uncached fields
     const allCrews = [];
     const allUniquePersonIds = new Set();
     let needsAnyHistory = false;
 
-    for (const match of uncachedMatches) {
+    for (const match of detailedMatches) {
       const crews = extractCrews(match);
       if (crews.length === 0) continue;
 
