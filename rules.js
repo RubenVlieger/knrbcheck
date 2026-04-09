@@ -109,15 +109,23 @@ function isClassifyingSeniorRace(race) {
   //   "MClub 4+" = Mannen Club competitie
   //   "VLente 1x" = Vrouwen Lente competitie
   //   "MTalent 1x" = Mannen Talenten competitie
+  //   "MOv4+" = Mannen Overnaeds (varsity competitie)
+  //   "HOv2+" = Heren Overnaeds
+  //   "VOv4+" = Vrouwen Overnaeds
+  //   "DOv4+" = Dames Overnaeds
+  //   "Ov2+" = Open Overnaeds
   // Key: "onerv" catches Onervaren, "erv" catches Ervaren (but NOT "gev" = Gevorderde)
+  // "ov" followed by boat type digit catches Overnaeds (but NOT "ov" in other contexts)
   if (codeLower.includes('onerv') || codeLower.includes('club') ||
       codeLower.includes('lente') || codeLower.includes('talent') ||
-      codeLower.includes('tal')) return false;
+      codeLower.includes('tal') || codeLower.includes('ov')) return false;
   // "erv" catches Ervaren competitie, but NOT Gevorderde (which has "gev")
   if (codeLower.includes('erv') && !codeLower.includes('gev')) return false;
   // Also exclude if matchCategoryName explicitly says competitie-level
   // Some APIs use abbreviated names like "Erv" or "Onrv"
   if (catLower.includes('erv') && !catLower.includes('gevorderde') && !catLower.includes('gev')) return false;
+  // Also exclude Overnaeds/varsity by category name
+  if (catLower.includes('overnaeds') || catLower.includes('overnaed') || catLower.includes('varsity')) return false;
 
   // Include known classifying senior prefixes
   // M/V/LM/LV/O/H/D followed by class indicators
