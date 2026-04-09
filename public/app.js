@@ -308,10 +308,7 @@ function renderResults(data) {
     resultsGrid.appendChild(card);
   }
 
-  // Auto-expand illegal crews
-  document.querySelectorAll('.crew-card.status-illegal').forEach(card => {
-    card.classList.add('expanded');
-  });
+  // All crews start collapsed — user clicks to expand
 }
 
 /**
@@ -331,7 +328,7 @@ function renderTournamentResults(data) {
   for (let fi = 0; fi < data.fields.length; fi++) {
     const field = data.fields[fi];
     const section = document.createElement('div');
-    section.className = `tournament-field ${field.illegalCrews > 0 ? 'status-illegal expanded' : 'status-legal'}`;
+    section.className = `tournament-field ${field.illegalCrews > 0 ? 'status-illegal' : 'status-legal'}`;
     section.style.animationDelay = `${fi * 0.04}s`;
 
     const badge = field.illegalCrews > 0
@@ -487,10 +484,10 @@ function renderRowerTable(crew) {
     return `<tr>${cells}</tr>`;
   }).join('');
 
-  return `<table class="rower-table">
+  return `<div class="rower-table-wrapper"><table class="rower-table">
     <thead><tr>${headers}</tr></thead>
     <tbody>${rows}</tbody>
-  </table>`;
+  </table></div>`;
 }
 
 /**

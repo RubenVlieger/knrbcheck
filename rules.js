@@ -106,7 +106,10 @@ function isClassifyingSeniorRace(race) {
       catLower.includes('onervaren') || catLower.includes('club') ||
       catLower.includes('lente') || catLower.includes('talent') ||
       catLower.includes('overnaeds') || catLower.includes('overnaed') ||
-      catLower.includes('varsity')) return false;
+      catLower.includes('varsity') || catLower.includes('open')) return false;
+
+  // Exclude Open fields explicitly by code (e.g. O8+, O1x)
+  if (/^o(1|2|4|8)/.test(codeLower)) return false;
 
   // Exclude competitie by matchCode patterns.
   // These MUST be checked before the whitelist because their codes

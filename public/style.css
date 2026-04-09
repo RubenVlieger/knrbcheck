@@ -401,12 +401,17 @@ select:focus {
   padding: 16px 20px;
   cursor: pointer;
   user-select: none;
+  gap: 10px;
+  min-width: 0;
 }
 
 .crew-info {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  align-items: baseline;
+  gap: 8px 12px;
+  min-width: 0;
+  flex-wrap: wrap;
+  flex: 1;
 }
 
 .crew-name {
@@ -447,6 +452,7 @@ select:focus {
   display: none;
   padding: 0 20px 20px;
   border-top: 1px solid var(--border);
+  overflow: hidden;
 }
 
 .crew-card.expanded .crew-details {
@@ -487,10 +493,17 @@ select:focus {
 }
 
 /* Rower Table */
+.rower-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .rower-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.84rem;
+  min-width: 480px;
 }
 
 .rower-table th {
@@ -575,6 +588,8 @@ select:focus {
   cursor: pointer;
   user-select: none;
   transition: background var(--transition);
+  gap: 10px;
+  min-width: 0;
 }
 
 .tournament-field-header:hover {
@@ -583,8 +598,11 @@ select:focus {
 
 .field-info {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  align-items: baseline;
+  gap: 4px 12px;
+  flex-wrap: wrap;
+  min-width: 0;
+  flex: 1;
 }
 
 .field-name {
@@ -613,14 +631,50 @@ select:focus {
 
 /* Responsive: stack button row on mobile */
 @media (max-width: 640px) {
+  .app { padding: 0 12px; }
   .header { padding: 32px 0 24px; }
   .logo { font-size: 1.5rem; }
   .input-row { flex-direction: column; }
   .button-row { flex-direction: column; }
   .results-header { flex-direction: column; align-items: flex-start; }
-  .crew-header { flex-direction: column; align-items: flex-start; gap: 8px; }
+
+  .crew-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 14px 16px;
+  }
+
+  .crew-info {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .crew-details {
+    padding: 0 12px 16px;
+  }
+
+  .tournament-field-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 14px 16px;
+  }
+
+  .field-info {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .tournament-field-body {
+    padding: 0 12px 16px;
+  }
+
   .rower-table { font-size: 0.78rem; }
   .rower-table th, .rower-table td { padding: 8px 6px; }
+
+  .card-body { padding: 16px; }
+  .card-header { padding: 16px 16px 0; }
 }
 /* Modal overlay */
 .modal-overlay {
