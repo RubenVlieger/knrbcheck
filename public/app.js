@@ -20,6 +20,9 @@ const resultsGrid = document.getElementById('results-grid');
 const globalStatsText = document.getElementById('global-stats-text');
 const globalCounter = document.getElementById('global-counter');
 const btnCheckTournament = document.getElementById('btn-check-tournament');
+const confirmModal = document.getElementById('confirm-modal');
+const btnConfirmYes = document.getElementById('btn-confirm-yes');
+const btnConfirmNo = document.getElementById('btn-confirm-no');
 
 let currentTournamentId = null;
 let allMatches = [];
@@ -214,9 +217,18 @@ async function checkField() {
 }
 
 /**
- * Check all fields in the selected tournament.
+ * Show confirmation modal before checking all fields.
  */
 async function checkTournament() {
+  if (!currentTournamentId) return;
+  confirmModal.classList.remove('hidden');
+}
+
+/**
+ * Actually run the tournament check (called after confirmation).
+ */
+async function executeTournamentCheck() {
+  confirmModal.classList.add('hidden');
   if (!currentTournamentId) return;
 
   stepLoading.classList.remove('hidden');
@@ -467,6 +479,8 @@ function escapeHtml(str) {
 // Event listeners
 btnCheck.addEventListener('click', checkField);
 btnCheckTournament.addEventListener('click', checkTournament);
+btnConfirmYes.addEventListener('click', executeTournamentCheck);
+btnConfirmNo.addEventListener('click', () => confirmModal.classList.add('hidden'));
 
 // Load initial data
 loadTournaments();
