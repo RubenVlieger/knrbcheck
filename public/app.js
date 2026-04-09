@@ -263,8 +263,9 @@ async function executeTournamentCheck() {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-      const events = parseSSEBuffer(buffer);
-      for (const event of events) {
+      const parseResult = parseSSEBuffer(buffer);
+      buffer = parseResult.remainder;
+      for (const event of parseResult.events) {
         handleProgressEvent(event);
         if (event.type === 'complete') {
           renderTournamentResults(event.data);
@@ -507,30 +508,36 @@ function escapeHtml(str) {
  * Parse SSE buffer into events.
  */
 function parseSSEBuffer(buffer) {
-  const text = new TextDecoder().decode(buffer);
   const events = [];
-  const lines = text.split('\n');
-  let eventType = null;
-  let eventData = '';
-
-  for (const line of lines) {
-    if (line.startsWith('event:')) {
-      eventType = line.slice(6).trim();
-    } else if (line.startsWith('data:')) {
-      eventData = line.slice(5).trim();
-    } else if (line === '') {
-      if (eventType && eventData) {
-        try {
-          events.push({ type: eventType, data: JSON.parse(eventData) });
-        } catch (e) {
-          console.warn('Failed to parse SSE data:', eventData);
-        }
+  let remainder = buffer;
+  let splitIndex;
+  
+  while ((splitIndex = remainder.indexOf('\n\n')) !== -1) {
+    const chunk = remainder.slice(0, splitIndex);
+    remainder = remainder.slice(splitIndex + 2);
+    
+    const lines = chunk.split('\n');
+    let eventType = null;
+    let eventData = '';
+    
+    for (const line of lines) {
+      if (line.startsWith('event:')) {
+        eventType = line.slice(6).trim();
+      } else if (line.startsWith('data:')) {
+        eventData = line.slice(5).trim();
       }
-      eventType = null;
-      eventData = '';
+    }
+    
+    if (eventType && eventData) {
+      try {
+        events.push({ type: eventType, data: JSON.parse(eventData) });
+      } catch (e) {
+        console.warn('Failed to parse SSE data:', eventData);
+      }
     }
   }
-  return events;
+  
+  return { events, remainder };
 }
 
 /**

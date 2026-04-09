@@ -93,13 +93,14 @@ function extractUniquePersonIds(crews) {
 
 function computeMatchHash(match) {
   const crypto = require('crypto');
-  const regData = (match.registrations || []).map(r => ({
-    id: r.id,
-    teamCount: (r.teams || []).length,
-    teamMemberIds: (r.teams || []).flatMap(t =>
-      ((t.teamVersions || []).find(v => v.isActive)?.teamMembers || [])?.map(m => m.personId) || []
-    ),
-  }));
+  const regData = {
+    count: match.registrationCount,
+    teams: (match.registrations || []).flatMap(r => 
+      (r.teams || []).flatMap(t => 
+        (t.teamVersions || []).filter(v => v.isActive).map(v => ({ vId: v.id, updated: v.updatedAt }))
+      )
+    )
+  };
   const hash = crypto.createHash('sha256').update(JSON.stringify(regData)).digest('hex').slice(0, 16);
   return hash;
 }
