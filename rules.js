@@ -96,40 +96,38 @@ function isClassifyingSeniorRace(race) {
   // Exclude masters
   if (codeLower.includes('masters') || codeLower.includes('mast')) return false;
 
+  // Exclude mixed gender fields (Art. 10: Mix — not a classifying category)
+  if (codeLower.includes('mix')) return false;
+
   // Exclude competitie (Art. 14) by category name
-  // Ervaren, Onervaren, Club, Lente, Talenten are all competitie-level, NOT classifying
+  // Ervaren, Onervaren, Club, Lente, Talenten, Overnaeds are all competitie-level, NOT classifying
   if (catLower.includes('competitie') || catLower.includes('ervaren') ||
       catLower.includes('onervaren') || catLower.includes('club') ||
-      catLower.includes('lente') || catLower.includes('talent')) return false;
+      catLower.includes('lente') || catLower.includes('talent') ||
+      catLower.includes('overnaeds') || catLower.includes('overnaed') ||
+      catLower.includes('varsity')) return false;
 
-  // Exclude competitie by matchCode patterns
-  // These appear in race history as abbreviated codes:
-  //   "MErv 1x" = Mannen Ervaren competitie
-  //   "VOnerv C4+" = Vrouwen Onervaren competitie
-  //   "MClub 4+" = Mannen Club competitie
-  //   "VLente 1x" = Vrouwen Lente competitie
-  //   "MTalent 1x" = Mannen Talenten competitie
-  //   "MOv4+" = Mannen Overnaeds (varsity competitie)
-  //   "HOv2+" = Heren Overnaeds
-  //   "VOv4+" = Vrouwen Overnaeds
-  //   "DOv4+" = Dames Overnaeds
-  //   "Ov2+" = Open Overnaeds
-  // Key: "onerv" catches Onervaren, "erv" catches Ervaren (but NOT "gev" = Gevorderde)
-  // "ov" followed by boat type digit catches Overnaeds (but NOT "ov" in other contexts)
-  if (codeLower.includes('onerv') || codeLower.includes('club') ||
-      codeLower.includes('lente') || codeLower.includes('talent') ||
-      codeLower.includes('tal') || codeLower.includes('ov')) return false;
-  // "erv" catches Ervaren competitie, but NOT Gevorderde (which has "gev")
-  if (codeLower.includes('erv') && !codeLower.includes('gev')) return false;
-  // Also exclude if matchCategoryName explicitly says competitie-level
-  // Some APIs use abbreviated names like "Erv" or "Onrv"
-  if (catLower.includes('erv') && !catLower.includes('gevorderde') && !catLower.includes('gev')) return false;
-  // Also exclude Overnaeds/varsity by category name
-  if (catLower.includes('overnaeds') || catLower.includes('overnaed') || catLower.includes('varsity')) return false;
+  // Exclude competitie by matchCode patterns.
+  // FOYS classifying senior codes ALWAYS have a class indicator after the gender prefix:
+  //   E=Elite, G=Gevorderde, N=Nieuweling, B=Beginner, Dev=Development, Ej=Eerstejaars
+  //   Examples: "ME 4-", "MG-B 1x", "MN 1x", "MDev 4-", "VEj 8+"
+  //
+  // Competitie codes do NOT have these indicators:
+  //   "MErv" = Ervaren, "VOnerv" = Onervaren, "MClub" = Club, "MOv" = Overnaeds
+  //   "H4+" = plain Heren (competitie), "V4+" = plain Vrouwen (competitie)
+  //   "D4+" = plain Dames (competitie), "Mix 8+" = Mixed (competitie)
+  //   "Lente", "Talent", "Ov" = all competitie
+  //
+  // Match: gender prefix (M/V/LM/LV/O/H/D) + KNOWN class indicator
+  // This specifically excludes plain "H4+", "V4+", "D4+" etc. without a class
+  const classifyingPattern = /^l?[mvhdo]\s*(e|g|g-|n|b|dev|ej)/;
+  if (classifyingPattern.test(codeLower)) return true;
 
-  // Include known classifying senior prefixes
-  // M/V/LM/LV/O/H/D followed by class indicators
-  if (codeLower.match(/^(l?[mvhdo])/)) return true;
+  // Also check category name for known classifying categories
+  if (catLower === 'elite' || catLower === 'gevorderde' || catLower === 'advanced' ||
+      catLower === 'nieuweling' || catLower === 'beginner' ||
+      catLower === 'development' || catLower === 'eerstejaars' ||
+      catLower.includes('first-year')) return true;
 
   return false;
 }
@@ -186,17 +184,31 @@ function countDevSeasons(raceHistory) {
 }
 
 /**
- * Count distinct seasons in which a rower participated in a CLASSIFYING SENIOR field.
- * Used for eerstejaars determination (Art. 13.4a).
- *
- * Only counts senior classifying fields (Art. 13):
- * Elite, Gevorderde, Nieuweling, Beginner, Eerstejaars, Development.
- * Excludes: Junior (Art. 11), Masters (Art. 12), Competitie (Art. 14).
- *
- * Returns { count, seasons } where count includes the current season
- * (since the rower is about to start in this field).
+ * Determine whether a rower was still junior age in a given season.
+ * A rower is junior if they haven't reached age 19 on Jan 1 of the
+ * second year of the season. Season "2024-2025" → Jan 1, 2025.
+ * Junior if born in year >= (secondYear - 18), i.e. born 2007+ for
+ * season 2024-2025.
  */
-function countClassifyingSeniorSeasons(raceHistory) {
+function wasJuniorInSeason(season, yearOfBirth) {
+  if (!yearOfBirth || yearOfBirth <= 0) return false;
+  const parts = season.split('-');
+  const secondYear = parseInt(parts[1], 10);
+  return yearOfBirth >= (secondYear - 18);
+}
+
+/**
+ * Count distinct seasons in which a rower participated in a CLASSIFYING SENIOR
+ * field AFTER junior age. Used for eerstejaars determination (Art. 13.4a).
+ *
+ * Seasons where the rower was still junior age are EXCLUDED, because the
+ * reglement says "het eerste roeiseizoen dat hij NIET MEER IN DE LEEFTIJD
+ * VAN JUNIOR start in een klasserend veld". Junior participation in classifying
+ * fields doesn't count toward the eerstejaars limit.
+ *
+ * Returns { count, seasons } where count includes the current season.
+ */
+function countClassifyingSeniorSeasons(raceHistory, yearOfBirth) {
   const seasons = new Set();
 
   for (const tournament of raceHistory) {
@@ -213,11 +225,14 @@ function countClassifyingSeniorSeasons(raceHistory) {
 
     if (hasClassifyingRace) {
       const season = getSeasonForDate(tournamentDate);
+      // Skip seasons where the rower was still junior age
+      if (wasJuniorInSeason(season, yearOfBirth)) continue;
       seasons.add(season);
     }
   }
 
   // Add current season (they are about to start in this classifying field)
+  // Current season is always post-junior (they're registering for a senior field)
   seasons.add(getCurrentSeason());
 
   return {
@@ -504,7 +519,7 @@ function checkEerstejaarsCrew(rowers, boatType, isEight, isFourOrQuad) {
     const sweeping = rower.personData?.totalSweepingPoints || 0;
     const totalCurrent = sculling + sweeping;
 
-    const classifyingInfo = countClassifyingSeniorSeasons(rower.raceHistory || []);
+    const classifyingInfo = countClassifyingSeniorSeasons(rower.raceHistory || [], rower.personData?.yearOfBirth);
     const yearOfBirth = rower.personData?.yearOfBirth || 0;
 
     // Junior age check: born in year >= (currentYear - 18) means still junior age
@@ -741,4 +756,5 @@ module.exports = {
   getCurrentSeason,
   getPointsAtSeasonStart,
   isClassifyingSeniorRace,
+  wasJuniorInSeason,
 };
