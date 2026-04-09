@@ -447,6 +447,70 @@ test('Junior-18: age 19 on Jan 1 → ILLEGAL', () => {
 });
 
 // ──────────────────────────────────────────────
+// SB (Senioren B / Beginner) tests
+// ──────────────────────────────────────────────
+console.log('\n🏅 Senioren B (Beginner)');
+
+test('classifyField: Senioren B → beginner', () => {
+  const field = classifyField('Senioren B', '1x');
+  assert.strictEqual(field.category, 'beginner');
+  assert.strictEqual(field.isSculling, true);
+});
+
+test('classifyField: Achttien → junior', () => {
+  const field = classifyField('Achttien', '1x');
+  assert.strictEqual(field.category, 'junior');
+});
+
+test('classifyField: Zestien → junior', () => {
+  const field = classifyField('Zestien', '4+');
+  assert.strictEqual(field.category, 'junior');
+});
+
+test('SB: 0 points in relevant type, < 6 in other → LEGAL', () => {
+  const rower = makeRower('A', 2005, 0, 3, [], []);
+  const result = checkBeginnerCrew([rower], true);
+  assert.strictEqual(result.status, 'LEGAL');
+});
+
+test('SB: > 0 points in relevant type → ILLEGAL', () => {
+  const rower = makeRower('A', 2005, 1, 3, [], []);
+  const result = checkBeginnerCrew([rower], true);
+  assert.strictEqual(result.status, 'ILLEGAL');
+});
+
+test('SB: 0 in relevant type but ≥ 6 in other → ILLEGAL', () => {
+  const rower = makeRower('A', 2005, 0, 6, [], []);
+  const result = checkBeginnerCrew([rower], true);
+  assert.strictEqual(result.status, 'ILLEGAL');
+});
+
+test('isClassifying: VSB 1x (Senioren B) → true', () => {
+  assert.strictEqual(isClassifyingSeniorRace({ matchCode: 'VSB 1x', matchCategoryName: 'Senioren B' }), true);
+});
+
+test('isClassifying: MSB 4+ (Senioren B) → true', () => {
+  assert.strictEqual(isClassifyingSeniorRace({ matchCode: 'MSB 4+', matchCategoryName: 'Senioren B' }), true);
+});
+
+test('isClassifying: VEnv 8+ (Ervaren) → false', () => {
+  assert.strictEqual(isClassifyingSeniorRace({ matchCode: 'VErv 8+', matchCategoryName: 'Ervaren' }), false);
+});
+
+test('isClassifying: VEnv 8+ (no category) → false', () => {
+  assert.strictEqual(isClassifyingSeniorRace({ matchCode: 'VErv 8+', matchCategoryName: '' }), false);
+});
+
+test('EJ: VErv (competitie) should NOT count as classifying season', () => {
+  const rower = makeRower('Laura', 2005, 0, 0, [], [
+    { firstTournamentDate: '2024-10-05', raceResults: [{ matchCode: 'VErv 8+', matchCategoryName: 'Ervaren' }] },
+  ]);
+  const result = checkEerstejaarsCrew([rower], '8+', true, false);
+  assert.strictEqual(result.rowers[0].isEerstejaars, true);
+  assert.strictEqual(result.rowers[0].classifyingSeasonCount, 1); // only current season
+});
+
+// ──────────────────────────────────────────────
 // Results
 // ──────────────────────────────────────────────
 console.log(`\n${'═'.repeat(50)}`);
