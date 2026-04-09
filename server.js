@@ -149,12 +149,15 @@ app.post('/api/check-field', async (req, res) => {
     const uniquePersonIds = extractUniquePersonIds(crews);
     console.log(`Fetching data for ${uniquePersonIds.length} unique rowers...`);
 
+    const field = classifyField(matchCategoryName, matchBoatCategoryCode);
+    const needsHistory = field.category === 'development' || field.category === 'eerstejaars';
+
     const [personDataMap, historyMap] = await Promise.all([
       getPersonDataBatch(uniquePersonIds),
-      getHistoryBatch(uniquePersonIds),
+      needsHistory ? getHistoryBatch(uniquePersonIds) : Promise.resolve(new Map()),
     ]);
 
-    console.log('All person data fetched. Running rule checks...');
+    console.log(`All person data fetched (history: ${needsHistory ? 'yes' : 'skipped'}). Running rule checks...`);
 
     const results = [];
     for (const crew of crews) {

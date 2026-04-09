@@ -8,8 +8,8 @@ const DB_DIR = path.join(__dirname, 'db');
 const DB_PATH = path.join(DB_DIR, 'cache.sqlite');
 
 const TTL = {
-  PERSON: 15 * 60 * 1000,
-  HISTORY: 30 * 60 * 1000,
+  PERSON: 30 * 60 * 1000,
+  HISTORY: 7 * 24 * 60 * 60 * 1000,
   FIELD_RESULT: 2 * 60 * 1000,
   TOURNAMENTS: 60 * 60 * 1000,
 };
@@ -71,12 +71,6 @@ function getPersonCached(personId) {
     stats.personHits++;
     return data;
   }
-  if (row) {
-    const data = JSON.parse(row.data);
-    lruPerson.set(personId, data);
-    stats.personMisses++;
-    return data;
-  }
   stats.personMisses++;
   return null;
 }
@@ -91,12 +85,6 @@ function getHistoryCached(personId) {
     const data = JSON.parse(row.data);
     lruHistory.set(personId, data);
     stats.historyHits++;
-    return data;
-  }
-  if (row) {
-    const data = JSON.parse(row.data);
-    lruHistory.set(personId, data);
-    stats.historyMisses++;
     return data;
   }
   stats.historyMisses++;
@@ -134,8 +122,8 @@ async function getPersonDataBatch(personIds) {
       const pid = chunk[j];
       if (result.status === 'fulfilled') {
         const { personId, data, fetchedAt } = result.value;
-        results.set(personId, data);
         setPersonCached(personId, data, fetchedAt);
+        results.set(pid, data);
       } else {
         console.error(`Failed to fetch person ${pid}:`, result.reason?.message || result.reason);
         results.set(pid, { totalScullingPoints: 0, totalSweepingPoints: 0, rowingPoints: [] });
@@ -167,8 +155,8 @@ async function getHistoryBatch(personIds) {
       const pid = chunk[j];
       if (result.status === 'fulfilled') {
         const { personId, data, fetchedAt } = result.value;
-        results.set(personId, data);
         setHistoryCached(personId, data, fetchedAt);
+        results.set(pid, data);
       } else {
         console.error(`Failed to fetch history for ${pid}:`, result.reason?.message || result.reason);
         results.set(pid, []);
@@ -213,13 +201,9 @@ function clearAllCache() {
 
 function pruneExpiredEntries() {
   const now = Date.now();
-  const personCutoff = now - TTL.PERSON * 3;
-  const historyCutoff = now - TTL.HISTORY * 3;
-  const fieldCutoff = now - TTL.FIELD_RESULT * 3;
-
-  const personDeleted = stmtDeleteExpiredPerson.run(personCutoff).changes;
-  const historyDeleted = stmtDeleteExpiredHistory.run(historyCutoff).changes;
-  const fieldDeleted = stmtDeleteExpiredField.run(fieldCutoff).changes;
+  const personDeleted = stmtDeleteExpiredPerson.run(now - TTL.PERSON * 3).changes;
+  const historyDeleted = stmtDeleteExpiredHistory.run(now - TTL.HISTORY * 3).changes;
+  const fieldDeleted = stmtDeleteExpiredField.run(now - TTL.FIELD_RESULT * 3).changes;
 
   if (personDeleted + historyDeleted + fieldDeleted > 0) {
     console.log(`Pruned expired cache entries: ${personDeleted} persons, ${historyDeleted} histories, ${fieldDeleted} fields`);
@@ -235,6 +219,7 @@ function getCacheStats() {
     personCache: { count: personCount, lruSize: lruPerson.size, hits: stats.personHits, misses: stats.personMisses },
     historyCache: { count: historyCount, lruSize: lruHistory.size, hits: stats.historyHits, misses: stats.historyMisses },
     fieldCache: { count: fieldCount, lruSize: lruField.size, hits: stats.fieldHits, misses: stats.fieldMisses },
+    ttl: { person: `${TTL.PERSON / 60000}min`, history: `${TTL.HISTORY / 86400000}d`, fieldResult: `${TTL.FIELD_RESULT / 60000}min` },
   };
 }
 
