@@ -204,6 +204,136 @@ app.post('/api/check-field', async (req, res) => {
   }
 });
 
+app.post('/api/check-tournament', async (req, res) => {
+  try {
+    const { tournamentId, combinedNieuweling = true } = req.body;
+    if (!tournamentId) {
+      return res.status(400).json({ error: 'Missing tournamentId' });
+    }
+
+    console.log(`Checking full tournament: tournament=${tournamentId}`);
+    const startTime = Date.now();
+
+    // 1 API call — returns ALL matches with full registrations
+    const allMatches = await fetchMatches(tournamentId);
+
+    // Only check fields with registrations
+    const eligibleMatches = allMatches.filter(m => (m.registrationCount || 0) > 0);
+    console.log(`Found ${eligibleMatches.length} fields with registrations`);
+
+    // Pre-build: extract crews + hashes, check caches
+    const uncachedMatches = [];
+    const fieldResults = [];
+    let totalCrews = 0;
+
+    for (const match of eligibleMatches) {
+      const matchHash = computeMatchHash(match);
+      const cached = getCachedFieldResult(tournamentId, String(match.id), matchHash);
+      if (cached) {
+        fieldResults.push({ matchId: match.id, ...cached });
+        totalCrews += cached.totalCrews;
+        continue;
+      }
+      uncachedMatches.push(match);
+    }
+
+    console.log(`Cache hits: ${fieldResults.length}/${eligibleMatches.length} fields`);
+
+    // Collect ALL unique person IDs across ALL uncached fields
+    const allCrews = [];
+    const allUniquePersonIds = new Set();
+    let needsAnyHistory = false;
+
+    for (const match of uncachedMatches) {
+      const crews = extractCrews(match);
+      if (crews.length === 0) continue;
+
+      const field = classifyField(match.matchCategoryName, match.matchBoatCategoryCode);
+      if (field.category === 'development' || field.category === 'eerstejaars') {
+        needsAnyHistory = true;
+      }
+      for (const crew of crews) {
+        for (const rower of crew.rowers) {
+          allUniquePersonIds.add(rower.personId);
+        }
+      }
+      allCrews.push({ match, crews });
+    }
+
+    console.log(`Fetching data for ${allUniquePersonIds.size} unique rowers across ${allCrews.length} uncached fields...`);
+
+    // Single batch fetch for ALL person data across ALL fields
+    const [personDataMap, historyMap] = await Promise.all([
+      getPersonDataBatch(Array.from(allUniquePersonIds)),
+      needsAnyHistory ? getHistoryBatch(Array.from(allUniquePersonIds)) : Promise.resolve(new Map()),
+    ]);
+
+    // Run rules per field, cache each result
+    for (const { match, crews } of allCrews) {
+      const { matchCategoryName, matchBoatCategoryCode, matchGeneratedCode } = match;
+      incrementCounter();
+
+      const crewResults = crews.map(crew => {
+        const enrichedRowers = crew.rowers.map(r => ({
+          ...r,
+          personData: personDataMap.get(r.personId) || {},
+          raceHistory: historyMap.get(r.personId) || [],
+        }));
+        return {
+          teamName: crew.teamName,
+          organisationName: crew.organisationName,
+          matchCode: `${matchGeneratedCode || ''} ${matchBoatCategoryCode || ''}`.trim(),
+          ...checkCrew(enrichedRowers, matchCategoryName, matchBoatCategoryCode, combinedNieuweling, matchGeneratedCode),
+        };
+      });
+
+      crewResults.sort((a, b) => {
+        if (a.status === 'ILLEGAL' && b.status !== 'ILLEGAL') return -1;
+        if (a.status !== 'ILLEGAL' && b.status === 'ILLEGAL') return 1;
+        return 0;
+      });
+
+      const matchHash = computeMatchHash(match);
+      const illegalCount = crewResults.filter(r => r.status === 'ILLEGAL').length;
+
+      const cacheResult = {
+        matchFullName: match.matchFullName,
+        matchCategoryName,
+        matchBoatCategoryCode,
+        totalCrews: crewResults.length,
+        illegalCrews: illegalCount,
+        results: crewResults,
+      };
+
+      setCachedFieldResult(tournamentId, String(match.id), matchHash, cacheResult);
+      fieldResults.push({ matchId: match.id, ...cacheResult });
+      totalCrews += crewResults.length;
+    }
+
+    // Sort: illegal fields first, then alphabetical
+    fieldResults.sort((a, b) => {
+      if (a.illegalCrews > 0 && b.illegalCrews === 0) return -1;
+      if (a.illegalCrews === 0 && b.illegalCrews > 0) return 1;
+      return (a.matchFullName || '').localeCompare(b.matchFullName || '');
+    });
+
+    const elapsed = Date.now() - startTime;
+    const totalIllegal = fieldResults.filter(f => f.illegalCrews > 0).length;
+    console.log(`Tournament check complete in ${elapsed}ms: ${totalIllegal} illegal fields out of ${fieldResults.length} total, ${totalCrews} crews`);
+
+    res.json({
+      tournamentId,
+      totalFields: fieldResults.length,
+      totalIllegalFields: totalIllegal,
+      totalCrews,
+      fields: fieldResults,
+    });
+  } catch (err) {
+    console.error('Error checking tournament:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/clear-cache', (req, res) => {
   cachedTournaments = null;
   lastTournamentsFetch = 0;

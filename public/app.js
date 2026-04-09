@@ -19,6 +19,7 @@ const statIllegal = document.getElementById('stat-illegal');
 const resultsGrid = document.getElementById('results-grid');
 const globalStatsText = document.getElementById('global-stats-text');
 const globalCounter = document.getElementById('global-counter');
+const btnCheckTournament = document.getElementById('btn-check-tournament');
 
 let currentTournamentId = null;
 let allMatches = [];
@@ -97,10 +98,13 @@ async function loadRegatta(tournamentId) {
   if (!tournamentId) {
     stepSelect.classList.add('hidden');
     stepResults.classList.add('hidden');
+    btnCheckTournament.disabled = true;
     return;
   }
 
   currentTournamentId = tournamentId;
+
+  btnCheckTournament.disabled = false;
 
   try {
     const res = await fetch(`/api/matches?tournamentId=${tournamentId}`);
@@ -210,6 +214,48 @@ async function checkField() {
 }
 
 /**
+ * Check all fields in the selected tournament.
+ */
+async function checkTournament() {
+  if (!currentTournamentId) return;
+
+  stepLoading.classList.remove('hidden');
+  stepResults.classList.add('hidden');
+  btnCheck.disabled = true;
+  btnCheckTournament.disabled = true;
+
+  const selectedOption = tournamentSelect.options[tournamentSelect.selectedIndex];
+  loadingText.textContent = `Controleren: ${selectedOption?.text || 'wedstrijd'}...`;
+  loadingSub.textContent = `Alle velden controleren – dit kan even duren`;
+
+  try {
+    const res = await fetch('/api/check-tournament', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tournamentId: currentTournamentId,
+        combinedNieuweling: combinedCheckbox.checked,
+      }),
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || res.statusText);
+    }
+
+    const data = await res.json();
+    renderTournamentResults(data);
+    updateStats();
+  } catch (err) {
+    alert(`Fout bij controle: ${err.message}`);
+  } finally {
+    stepLoading.classList.add('hidden');
+    btnCheck.disabled = false;
+    btnCheckTournament.disabled = false;
+  }
+}
+
+/**
  * Render the check results.
  */
 function renderResults(data) {
@@ -235,6 +281,52 @@ function renderResults(data) {
   document.querySelectorAll('.crew-card.status-illegal').forEach(card => {
     card.classList.add('expanded');
   });
+}
+
+/**
+ * Render the full tournament check results.
+ */
+function renderTournamentResults(data) {
+  stepResults.classList.remove('hidden');
+
+  resultsTitle.textContent = `${data.totalFields} velden gecontroleerd`;
+  statTotal.textContent = `${data.totalFields} velden`;
+  statLegal.textContent = `✅ ${data.totalFields - data.totalIllegalFields} legaal`;
+  statIllegal.textContent = `❌ ${data.totalIllegalFields} met problemen`;
+  statIllegal.style.display = data.totalIllegalFields > 0 ? '' : 'none';
+
+  resultsGrid.innerHTML = '';
+
+  for (let fi = 0; fi < data.fields.length; fi++) {
+    const field = data.fields[fi];
+    const section = document.createElement('div');
+    section.className = `tournament-field ${field.illegalCrews > 0 ? 'status-illegal expanded' : 'status-legal'}`;
+    section.style.animationDelay = `${fi * 0.04}s`;
+
+    const badge = field.illegalCrews > 0
+      ? `<span class="status-badge badge-illegal">${field.illegalCrews} illegaal</span>`
+      : `<span class="status-badge badge-legal">Legaal</span>`;
+
+    const crewCards = field.results.map((crew, ci) => createCrewCard(crew, ci).outerHTML).join('');
+
+    section.innerHTML = `
+      <div class="tournament-field-header" onclick="this.parentElement.classList.toggle('expanded')">
+        <div class="field-info">
+          <span class="field-name">${escapeHtml(field.matchFullName)}</span>
+          <span class="field-meta">${field.totalCrews} bemanningen</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          ${badge}
+          <span class="expand-icon">▼</span>
+        </div>
+      </div>
+      <div class="tournament-field-body">
+        ${crewCards}
+      </div>
+    `;
+
+    resultsGrid.appendChild(section);
+  }
 }
 
 /**
@@ -374,6 +466,7 @@ function escapeHtml(str) {
 
 // Event listeners
 btnCheck.addEventListener('click', checkField);
+btnCheckTournament.addEventListener('click', checkTournament);
 
 // Load initial data
 loadTournaments();
